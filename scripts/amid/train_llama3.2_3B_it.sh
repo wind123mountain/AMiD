@@ -17,16 +17,16 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
 
 # model
 BASE_PATH=.
-CKPT_NAME="qwen2.5-0.5B"
-CKPT="Qwen/Qwen2.5-0.5B"
-TEACHER_CKPT_NAME="qwen2.5-Math-1.5B-Instruct"
-TEACHER_CKPT="Qwen/Qwen2.5-Math-1.5B-Instruct"
+CKPT_NAME="llama3.2-3B-Instruct"
+CKPT="meta-llama/Llama-3.2-3B-Instruct"
+TEACHER_CKPT_NAME="deepSeek-R1-Distill-Llama-8B"
+TEACHER_CKPT="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 # data
-DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/Qwen/Qwen2.5-Math-1.5B-Instruct/"
+DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/"
 # hp
-BATCH_SIZE=8
+BATCH_SIZE=2
 LR=1e-4
-GRAD_ACC=1
+GRAD_ACC=4
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1024
@@ -102,6 +102,11 @@ OPTS+=" --amid-div-name ${AMID_DIV_NAME}"
 OPTS+=" --amid-div-order ${AMID_DIV_ORDER}"
 OPTS+=" --amid-alpha ${AMID_ALPHA}"
 OPTS+=" --amid-lam ${AMID_LAM}"
+
+OPTS+=" --peft lora"
+OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-alpha 128"
+OPTS+=" --peft-lora-dropout 0.05"
 
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
