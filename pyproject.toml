@@ -17,7 +17,7 @@ dependencies = [
     "deepspeed",
     "nltk",
     "numerize",
-    "torch==2.6.0",
+    "torch==2.9.1",
     "rouge-score",
     "rich"
 ]
