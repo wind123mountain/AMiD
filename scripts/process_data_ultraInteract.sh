@@ -1,0 +1,33 @@
+export TF_CPP_MIN_LOG_LEVEL=3
+
+
+# PYTHONPATH=. python3 ./tools/process_data_ultraInteract.py \
+#     --data-dir ./data/dpo/Qwen/Qwen2.5-14B-Instruct/generated_train.jsonl \
+#     --processed-data-dir ./processed_data/ultraInteract \
+#     --model-path Qwen/Qwen2.5-14B-Instruct \
+#     --data-process-workers 32 \
+#     --max-prompt-length 512 \
+#     --dev-num 200 \
+#     --only-prompt \
+#     --model-type qwen
+
+# PYTHONPATH=. python3 ./tools/process_data_ultraInteract.py \
+#     --data-dir ./data/dpo/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/generated_train.jsonl \
+#     --processed-data-dir ./processed_data/ultraInteract \
+#     --model-path deepseek-ai/DeepSeek-R1-Distill-Llama-8B \
+#     --data-process-workers 32 \
+#     --max-prompt-length 512 \
+#     --dev-num 200 \
+#     --only-prompt \
+#     --model-type llama
+
+PYTHONPATH=. python3 ./tools/process_data_ultraInteract.py \
+    --data-dir ./data/dpo/Qwen/Qwen2.5-Math-1.5B-Instruct/generated_train.jsonl \
+    --processed-data-dir ./processed_data/ultraInteract \
+    --model-path Qwen/Qwen2.5-Math-1.5B-Instruct \
+    --data-process-workers 32 \
+    --max-prompt-length 512 \
+    --dev-num 200 \
+    --only-prompt \
+    --model-type qwen
+
