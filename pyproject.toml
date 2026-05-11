@@ -19,7 +19,8 @@ dependencies = [
     "numerize",
     "torch==2.9.1",
     "rouge-score",
-    "rich"
+    "rich",
+    "setuptools"
 ]
 
 [tool.uv]
