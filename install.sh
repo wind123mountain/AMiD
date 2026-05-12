@@ -16,9 +16,6 @@ export NCCL_DEBUG=""
 # pip install vllm
 # pip install fraction
 # pip install jsonlines
-conda create -n amid python=3.10 -y
-conda init bash
-source ~/.bashrc
-conda activate amid
+
 pip install uv
-uv sync --active
+uv sync 
