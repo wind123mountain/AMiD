@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(0 1 2 3)
+GPUS=(4 5 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -24,9 +24,9 @@ TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
 # data
 DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # hp
-BATCH_SIZE=2
+BATCH_SIZE=4
 LR=1e-4
-GRAD_ACC=4
+GRAD_ACC=2
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1024

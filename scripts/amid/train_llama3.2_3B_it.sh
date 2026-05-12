@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(0 1 2 3)
+GPUS=(4 5 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -24,10 +24,10 @@ TEACHER_CKPT="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
 # data
 DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/"
 # hp
-BATCH_SIZE=2
+BATCH_SIZE=4
 LR=1e-4
-GRAD_ACC=4
-EVAL_BATCH_SIZE=16
+GRAD_ACC=2
+EVAL_BATCH_SIZE=32
 # length
 MAX_LENGTH=1024
 # seed
