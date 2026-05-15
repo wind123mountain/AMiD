@@ -43,12 +43,12 @@ NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="${BASE_PATH}/results/${CKPT_NAME}#sfkl_nnm/sa${SKEW_ALPHA}_nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_bs${BATCH_SIZE}_lr${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm/sa${SKEW_ALPHA}_nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_bs${BATCH_SIZE}_lr${LR}"
 
 
 OPTS=""
 # model
-OPTS+=" --base-path ${BASE_PATH}"
+OPTS+=" --base-path ."
 OPTS+=" --model-path ${CKPT}"
 OPTS+=" --teacher-model-path ${TEACHER_CKPT}"
 OPTS+=" --ckpt-name ${CKPT_NAME}"
@@ -68,7 +68,7 @@ OPTS+=" --warmup-iters 0"
 OPTS+=" --lr-decay-style cosine"
 OPTS+=" --weight-decay 1e-2"
 OPTS+=" --clip-grad 1.0"
-OPTS+=" --epochs 3"
+OPTS+=" --epochs 2"
 OPTS+=" --kd-ratio 1.0"
 # length
 OPTS+=" --max-length ${MAX_LENGTH}"
@@ -86,7 +86,7 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ${BASE_PATH}/configs/deepspeed/ds_config_zero1_bf16.json"
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json"
 # ───── type: adaptive + SFKL (DistiLLM-1 SFKL with adaptive threshold) ─────
 OPTS+=" --type adaptive-sfkl"
 OPTS+=" --skew-alpha ${SKEW_ALPHA}"
@@ -120,8 +120,8 @@ OPTS+=" --nnm-ramp-steps 200"
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
-export PYTHONPATH=${BASE_PATH}
-CMD="torchrun ${DISTRIBUTED_ARGS} ${BASE_PATH}/finetune.py ${OPTS} $@"
+export PYTHONPATH=.
+CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"

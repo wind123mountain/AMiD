@@ -191,6 +191,8 @@ def add_distillm_args(parser: argparse.ArgumentParser):
     group.add_argument("--capacity", type=int, default=1000)
     group.add_argument("--replay-ratio", type=str, default="decreasing")
     # group.add_argument("--time", action="store_true")
+
+    group.add_argument("--delta-threshold", type=float, default=0.1)
     return parser
 
 

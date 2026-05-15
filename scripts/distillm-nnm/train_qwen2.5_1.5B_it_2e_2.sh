@@ -23,7 +23,7 @@ TEACHER_CKPT_NAME="qwen2.5-14B-Instruct"
 TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
 
 # ───── data ─────
-DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
 BATCH_SIZE=8
@@ -32,6 +32,8 @@ GRAD_ACC=4
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1024
 SEED=10
+EPOCHS=2
+KD_R=0.75
 
 # ───── SFKL ─────
 SKEW_ALPHA=0.1
@@ -43,12 +45,12 @@ NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="${BASE_PATH}/results/${CKPT_NAME}#sfkl_nnm_lora/sa${SKEW_ALPHA}_nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_bs${BATCH_SIZE}_lr${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
 # model
-OPTS+=" --base-path ${BASE_PATH}"
+OPTS+=" --base-path ."
 OPTS+=" --model-path ${CKPT}"
 OPTS+=" --teacher-model-path ${TEACHER_CKPT}"
 OPTS+=" --ckpt-name ${CKPT_NAME}"
@@ -68,8 +70,8 @@ OPTS+=" --warmup-iters 0"
 OPTS+=" --lr-decay-style cosine"
 OPTS+=" --weight-decay 1e-2"
 OPTS+=" --clip-grad 1.0"
-OPTS+=" --epochs 3"
-OPTS+=" --kd-ratio 1.0"
+OPTS+=" --epochs ${EPOCHS}"
+OPTS+=" --kd-ratio ${KD_R}"
 # length
 OPTS+=" --max-length ${MAX_LENGTH}"
 OPTS+=" --max-prompt-length 512"
@@ -86,7 +88,7 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ${BASE_PATH}/configs/deepspeed/ds_config_zero1_bf16.json"
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json"
 # ───── type: adaptive + SFKL ─────
 OPTS+=" --type adaptive-sfkl"
 OPTS+=" --skew-alpha ${SKEW_ALPHA}"
@@ -118,16 +120,18 @@ OPTS+=" --nnm-warmup-steps 200"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-r 32"
 OPTS+=" --peft-lora-alpha 128"
 OPTS+=" --peft-lora-dropout 0.05"
+
+OPTS+=" --delta-threshold 0.05"
 
 
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
-export PYTHONPATH=${BASE_PATH}
-CMD="torchrun ${DISTRIBUTED_ARGS} ${BASE_PATH}/finetune.py ${OPTS} $@"
+export PYTHONPATH=.
+CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"

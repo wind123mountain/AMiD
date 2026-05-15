@@ -22,7 +22,7 @@ CKPT="Qwen/Qwen2.5-1.5B-Instruct"
 TEACHER_CKPT_NAME="qwen2.5-14B-Instruct"
 TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
 # data
-DATA_DIR="${BASE_PATH}/processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # hp
 BATCH_SIZE=2
 LR=1e-4
@@ -38,13 +38,13 @@ AMID_DIV_ORDER="pr"
 AMID_ALPHA=0.5
 AMID_LAM=0.5
 
-SAVE_PATH="${BASE_PATH}/results/${CKPT_NAME}#amid/${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#amid/${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
 
 
 
 OPTS=""
 # model
-OPTS+=" --base-path ${BASE_PATH}"
+OPTS+=" --base-path ."
 OPTS+=" --model-path ${CKPT}"
 OPTS+=" --teacher-model-path ${TEACHER_CKPT}"
 OPTS+=" --ckpt-name ${CKPT_NAME}"
@@ -82,7 +82,7 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ${BASE_PATH}/configs/deepspeed/ds_config_zero1_bf16.json" # From MiniLLM to avoid OVERFLOW
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json" # From MiniLLM to avoid OVERFLOW
 # type
 OPTS+=" --type adaptive-amid"
 # gen
@@ -111,8 +111,8 @@ OPTS+=" --peft-lora-dropout 0.05"
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
-export PYTHONPATH=${BASE_PATH}
-CMD="torchrun ${DISTRIBUTED_ARGS} ${BASE_PATH}/finetune.py ${OPTS} $@"
+export PYTHONPATH=.
+CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"
