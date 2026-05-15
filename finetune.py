@@ -44,6 +44,17 @@ from rouge_metric import compute_metrics
 
 from peft import PeftModel
 
+# ═══════════════════════════════════════════════════════════════
+#  NNM import
+# ═══════════════════════════════════════════════════════════════
+from nnm_module import (
+    make_R,
+    layer_weight,
+    select_mid_layers,
+    build_teacher_centroids,
+    compute_nnm_loss,
+)
+
 torch.set_num_threads(4)
 
 
@@ -85,6 +96,19 @@ def get_optimizer(args, model):
         param_groups = get_optimizer_params_peft(args, model)
     else:
         param_groups = get_optimizer_params(args, model)
+
+    # ═══════════════════════════════════════════════════════════════
+    #  NNM: include projector params in the optimizer
+    # ═══════════════════════════════════════════════════════════════
+    if getattr(args, "nnm", False) and hasattr(model, "projectors"):
+        proj_params = [p for p in model.projectors.parameters() if p.requires_grad]
+        if len(proj_params) > 0:
+            param_groups.append({
+                "params": proj_params,
+                "weight_decay": args.weight_decay,
+                "lr": args.lr,
+            })
+            print_rank(f"[NNM] Added {sum(p.numel() for p in proj_params)} projector params to optimizer")
 
     # Use AdamW.
     optimizer = AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
@@ -216,7 +240,66 @@ def get_teacher_lm_loss(args, tokenizer, model, teacher_model, model_batch):
     return lm_loss
 
 
-def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, optimizer: AdamW, lr_scheduler, dataset, device, teacher_model=None):
+# ═══════════════════════════════════════════════════════════════
+#  NNM: attach projectors to student model
+# ═══════════════════════════════════════════════════════════════
+
+def attach_nnm_projectors(student_model, n_student_layers, d_s, d_t, s_mid, device, dtype):
+    """
+    Build a Linear(d_s -> d_t) per selected student layer, attached to the
+    student as `model.projectors`. Must be done BEFORE deepspeed.initialize.
+    """
+    projectors = nn.ModuleList([
+        nn.Linear(d_s, d_t, bias=False) for _ in s_mid
+    ])
+    # init small
+    for p in projectors:
+        nn.init.normal_(p.weight, std=0.02)
+    projectors = projectors.to(device=device, dtype=dtype)
+    student_model.projectors = projectors
+    print_rank(f"[NNM] Attached {len(projectors)} projectors "
+               f"({d_s} -> {d_t}) to student model")
+    return projectors
+
+
+def get_unwrapped_student(model):
+    """Strip DeepSpeed / DDP wrappers to access HuggingFace model + projectors."""
+    m = model
+    while hasattr(m, "module"):
+        m = m.module
+    return m
+
+
+# ═══════════════════════════════════════════════════════════════
+#  NNM: warmup + linear ramp schedule
+# ═══════════════════════════════════════════════════════════════
+
+def _nnm_effective_ratio(global_step, args):
+    """
+    Return the NNM loss weight at this global_step.
+
+      step <  nnm_warmup_steps                       → 0.0           (skip entirely)
+      nnm_warmup_steps <= step < warmup + ramp       → linear ramp 0 → nnm_ratio
+      step >= warmup + ramp                          → nnm_ratio
+
+    If nnm_ramp_steps == 0, the transition is a hard step.
+    """
+    warmup = getattr(args, "nnm_warmup_steps", 0)
+    ramp   = getattr(args, "nnm_ramp_steps", 0)
+    target = args.nnm_ratio
+
+    if global_step < warmup:
+        return 0.0
+    if ramp <= 0:
+        return target
+    progress = (global_step - warmup) / ramp
+    if progress >= 1.0:
+        return target
+    return target * progress
+
+
+def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, optimizer: AdamW, lr_scheduler, dataset, device, teacher_model=None,
+             nnm_state=None):
     print_rank("Start Fine-tuning")
 
     # print_inspect(model, '*')
@@ -239,7 +322,8 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
     student_generator = SampleGenerator(args, tokenizer)
 
     step, global_step = 1, 1
-    total_loss, total_distil_loss, total_time = 0.0, 0.0, 0.0
+    # ═══ NNM: extra running stat ═══
+    total_loss, total_distil_loss, total_nnm_loss, total_time = 0.0, 0.0, 0.0, 0.0
 
     adaptive_threshold = args.init_threshold if "adaptive" in args.type else None
     # prev_avg_loss, _ = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
@@ -247,6 +331,14 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
     replay_buffer = ReplayBuffer(args)
 
     total_res = []
+
+    # ═══ NNM: master switch (config-level) ═══
+    nnm_enabled = (nnm_state is not None) and (args.nnm_ratio > 0)
+    if nnm_enabled:
+        warmup_s = getattr(args, "nnm_warmup_steps", 0)
+        ramp_s   = getattr(args, "nnm_ramp_steps", 0)
+        print_rank(f"[NNM] schedule: warmup={warmup_s} steps, "
+                   f"ramp={ramp_s} steps, target_ratio={args.nnm_ratio}")
 
     for epoch in range(args.epochs):
         sampler.set_epoch(epoch)
@@ -307,7 +399,20 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
 
                     model.train()
 
-            outputs = model(**model_batch, use_cache=False)
+            # ═══ NNM: compute effective ratio for this step ═══
+            if nnm_enabled:
+                nnm_eff_ratio = _nnm_effective_ratio(global_step, args)
+            else:
+                nnm_eff_ratio = 0.0
+            use_nnm = nnm_eff_ratio > 0.0
+
+            # ═══ NNM: turn on hidden states if needed ═══
+            if use_nnm:
+                outputs = model(**model_batch, output_hidden_states=True, use_cache=False)
+                s_hidden = outputs.hidden_states
+            else:
+                outputs = model(**model_batch, use_cache=False)
+                s_hidden = None
 
             logits = outputs.logits
             if args.model_parallel:
@@ -320,6 +425,34 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * distil_loss
             else:
                 loss = lm_loss
+
+            # ═══════════════════════════════════════════════════════════════
+            #  NNM loss (warmup-aware)
+            # ═══════════════════════════════════════════════════════════════
+            nnm_loss = torch.tensor(0.0, device=device)
+            if use_nnm:
+                # Teacher forward (output_hidden_states)
+                with torch.no_grad():
+                    teacher_model.eval()
+                    t_out = teacher_model(**model_batch,
+                                          output_hidden_states=True,
+                                          use_cache=False)
+                    t_hidden = t_out.hidden_states
+
+                student_unwrapped = get_unwrapped_student(model)
+                nnm_loss = compute_nnm_loss(
+                    projectors=student_unwrapped.projectors,
+                    s_hidden_states=s_hidden,
+                    t_hidden_states=t_hidden,
+                    labels=no_model_batch["label"],
+                    student_layer_mapping=nnm_state["s_mid"],
+                    teacher_layer_mapping=nnm_state["t_mid"],
+                    t_centroids=nnm_state["t_centroids"],
+                    R=nnm_state["R"],
+                    layer_weights=nnm_state["layer_weights"],
+                    ns_iters=args.nnm_ns_iters,
+                )
+                loss = loss + nnm_eff_ratio * nnm_loss
 
             if args.lm_data_dir is not None:
                 assert args.lm_coef is not None
@@ -337,6 +470,13 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 global_distil_loss = distil_loss.item() / dp_world_size
                 total_distil_loss += global_distil_loss
 
+            # ═══ NNM: reduce + accumulate ═══
+            global_nnm_loss = 0.0
+            if use_nnm:
+                dist.all_reduce(nnm_loss, dist.ReduceOp.SUM, group=dp_group)
+                global_nnm_loss = nnm_loss.item() / dp_world_size
+                total_nnm_loss += global_nnm_loss
+
             torch.cuda.synchronize()
             elapsed_time = time.time() - st_time
 
@@ -344,8 +484,10 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             total_time += elapsed_time
 
             # Logging
-            def get_log(log_loss, log_distil_loss, log_time):
-                return "train | epoch {:3d} | Iter: {:6d}/{:6d} | global iter: {:6d}/{:6d} | loss: {:.4f} | ds_loss: {:.4f} | lr: {:.4e} | scale: {:10.4f} | micro time: {:.3f} | step time: {:.3f}".format(
+            def get_log(log_loss, log_distil_loss, log_nnm_loss, log_time):
+                return ("train | epoch {:3d} | Iter: {:6d}/{:6d} | global iter: {:6d}/{:6d} | "
+                        "loss: {:.4f} | ds_loss: {:.4f} | nnm_loss: {:.4f} | lr: {:.4e} | "
+                        "scale: {:10.4f} | micro time: {:.3f} | step time: {:.3f}").format(
                     epoch,
                     step,
                     args.total_iters * args.gradient_accumulation_steps,
@@ -353,6 +495,7 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                     args.total_iters,
                     log_loss,
                     log_distil_loss,
+                    log_nnm_loss,
                     lr_scheduler.get_last_lr()[0],
                     optimizer.cur_scale if hasattr(optimizer, "cur_scale") else 0,
                     elapsed_time,
@@ -363,16 +506,22 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 mid_log_step = args.gradient_accumulation_steps // args.mid_log_num
                 mid_log_step = 1 if mid_log_step == 0 else mid_log_step
                 if step % mid_log_step == 0:
-                    print_rank(get_log(global_loss, global_distil_loss, 0))
+                    print_rank(get_log(global_loss, global_distil_loss, global_nnm_loss, 0))
 
             if global_step % args.log_interval == 0 and step % args.gradient_accumulation_steps == 0:
-                log_str = get_log(total_loss / (args.log_interval * args.gradient_accumulation_steps), total_distil_loss / (args.log_interval * args.gradient_accumulation_steps), total_time / (args.log_interval))
+                denom = args.log_interval * args.gradient_accumulation_steps
+                log_str = get_log(
+                    total_loss / denom,
+                    total_distil_loss / denom,
+                    total_nnm_loss / denom,
+                    total_time / args.log_interval,
+                )
                 print_rank("*" * 100)
                 print_rank(log_str)
                 print_rank(args.save)
                 print_rank("*" * 100)
                 save_rank(log_str, os.path.join(args.save, "log.txt"))
-                total_loss, total_distil_loss, total_time = 0.0, 0.0, 0.0
+                total_loss, total_distil_loss, total_nnm_loss, total_time = 0.0, 0.0, 0.0, 0.0
 
             # Checkpointing
             if args.save and args.save_interval and global_step % args.save_interval == 0 and step % args.gradient_accumulation_steps == 0:
@@ -407,10 +556,7 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 break
 
     ##### Save #####
-    # total_res = np.array(total_res)
-    # best_res = total_res[np.argmax(total_res[:, -1])]
-    # save_rank(f"best | step: {best_res[0]}, avg_loss: {best_res[1]}, exact_match: {best_res[2]}, rougeL: {best_res[3]}", os.path.join(args.save, "log.txt"))
-    # np.save(f"{args.save}/total_res#best_{best_res[0]}_{best_res[-1]:.2f}.npy", np.array(total_res))
+    # (unchanged)
 
     return model
 
@@ -513,6 +659,97 @@ def evaluate(args, tokenizer, model, dataset: LMTrainDataset, split, epoch, devi
     return all_loss / step # , [avg_loss, res["exact_match"], res["rougeL"]]
 
 
+# ═══════════════════════════════════════════════════════════════
+#  NNM: pre-pass driver
+# ═══════════════════════════════════════════════════════════════
+
+def prepare_nnm(args, tokenizer, raw_student, teacher_model, dataset, device):
+    """
+    Run BEFORE deepspeed.initialize. Returns a dict carrying all NNM state.
+
+    Steps:
+      1) probe d_s, d_t and choose layer mappings
+      2) attach projectors to the raw student so they get wrapped by DeepSpeed
+      3) run teacher centroid pre-pass on a plain dataloader (no DeepSpeed)
+      4) build random projection R and per-layer weights
+    """
+    # ── 1. shapes & layer selection ────────────────────────────
+    s_cfg = raw_student.config
+    t_cfg = teacher_model.config
+
+    d_s = s_cfg.hidden_size
+    d_t = t_cfg.hidden_size
+
+    # transformer model: hidden_states tuple has (n_layers + 1) entries
+    # — index 0 is embedding output, indices 1..n are transformer block outputs
+    n_s_layers = s_cfg.num_hidden_layers
+    n_t_layers = t_cfg.num_hidden_layers
+
+    s_mid = select_mid_layers(n_s_layers, args.nnm_n_layers)
+    t_mid = select_mid_layers(n_t_layers, args.nnm_n_layers)
+    print_rank(f"[NNM] student layers ({n_s_layers}): selected {s_mid}")
+    print_rank(f"[NNM] teacher layers ({n_t_layers}): selected {t_mid}")
+
+    # ── 2. attach projectors (BEFORE deepspeed wraps the model) ─
+    proj_dtype = next(raw_student.parameters()).dtype
+    attach_nnm_projectors(raw_student, n_s_layers, d_s, d_t, s_mid,
+                          device=device, dtype=proj_dtype)
+
+    # ── 3. build teacher centroids on a plain dataloader ───────
+    sampler = DistributedSampler(dataset["train"], shuffle=True, drop_last=True,
+                                 rank=dist.get_rank(),
+                                 num_replicas=dist.get_world_size())
+    loader = DataLoader(dataset["train"], sampler=sampler,
+                        batch_size=args.batch_size,
+                        num_workers=args.num_workers,
+                        collate_fn=dataset["train"].collate)
+
+    # The collator returns (model_batch, no_model_batch, gen_data). We need a
+    # plain dict with input_ids / attention_mask / labels for the centroid
+    # routine, so wrap with a tiny generator.
+    def _flatten_batches(it):
+        for model_batch, no_model_batch, _gen in it:
+            yield {
+                "input_ids":      model_batch["input_ids"],
+                "attention_mask": model_batch.get("attention_mask",
+                                                  torch.ones_like(model_batch["input_ids"])),
+                "labels":         no_model_batch["label"],
+            }
+
+    teacher_device = next(teacher_model.parameters()).device
+    t_centroids = build_teacher_centroids(
+        teacher=teacher_model,
+        dataloader=_flatten_batches(loader),
+        student_layer_mapping=s_mid,
+        teacher_layer_mapping=t_mid,
+        K=args.nnm_K,
+        eta=args.nnm_eta,
+        T_dead=args.nnm_T_dead,
+        max_batches=args.nnm_centroid_batches,
+        device=teacher_device,
+    )
+    # Move centroids to the student device (where NNM loss is computed)
+    t_centroids = {k: v.to(device) for k, v in t_centroids.items()}
+
+    # ── 4. random projection R and layer weights ───────────────
+    R = make_R(d_t, args.nnm_d_prime, device=device, seed=args.seed)
+    layer_weights = {
+        s_lid: layer_weight(s_lid, n_s_layers) for s_lid in s_mid
+    }
+
+    print_rank(f"[NNM] centroids ready: K={args.nnm_K}, d_t={d_t}, "
+               f"d_prime={args.nnm_d_prime}")
+    return {
+        "s_mid":         s_mid,
+        "t_mid":         t_mid,
+        "t_centroids":   t_centroids,
+        "R":             R,
+        "layer_weights": layer_weights,
+        "d_s":           d_s,
+        "d_t":           d_t,
+    }
+
+
 def main():
     torch.backends.cudnn.enabled = False
 
@@ -575,11 +812,25 @@ def main():
         model.resize_token_embeddings(teacher_model.config.vocab_size)
     else:
         teacher_model = None
-    
+
+    # ═══════════════════════════════════════════════════════════════
+    #  NNM pre-pass: BEFORE deepspeed.initialize so that
+    #  (a) projectors get wrapped by DeepSpeed and added to optimizer
+    #  (b) centroid pre-pass uses fast raw teacher inference
+    # ═══════════════════════════════════════════════════════════════
+    nnm_state = None
+    if args.do_train and getattr(args, "nnm", False):
+        if teacher_model is None:
+            raise ValueError("NNM requires --teacher_model_path")
+        nnm_state = prepare_nnm(args, tokenizer, model, teacher_model,
+                                dataset, device)
+
     model, optimizer, lr_scheduler = setup_model_and_optimizer(args, model, ds_config, device, set_optim=args.do_train)
 
     if args.do_train:
-        model = finetune(args, tokenizer, model, optimizer, lr_scheduler, dataset, device, teacher_model=teacher_model)
+        model = finetune(args, tokenizer, model, optimizer, lr_scheduler,
+                         dataset, device, teacher_model=teacher_model,
+                         nnm_state=nnm_state)
 
     if args.do_eval:
         evaluate(args, tokenizer, model, dataset["test"], "test", 0, device)

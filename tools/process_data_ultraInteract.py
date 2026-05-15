@@ -89,10 +89,7 @@ def main():
         bin_file = os.path.join(args.processed_data_dir, f"{split}_{0}.bin")
         idx_file = os.path.join(args.processed_data_dir, f"{split}_{0}.idx")
 
-        if args.model_type != "qwen":
-            binary_builder = make_builder(bin_file, impl="mmap", dtype=np.uint16)
-        else:
-            binary_builder = make_builder(bin_file, impl="mmap", dtype=np.uint32)
+        binary_builder = make_builder(bin_file, impl="mmap", dtype=np.uint32)
 
         # put tokenized data into binary_builder
         inst_num = 0

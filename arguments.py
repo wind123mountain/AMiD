@@ -242,6 +242,53 @@ def add_amid_args(parser: argparse.ArgumentParser):
     return parser
 
 
+# ═══════════════════════════════════════════════════════════════
+#  NNM (Nuclear Norm Matching) arguments
+# ═══════════════════════════════════════════════════════════════
+
+def add_nnm_args(parser: argparse.ArgumentParser):
+    group = parser.add_argument_group('nnm', 'Nuclear Norm Matching configurations')
+
+    # main switch + loss weight
+    # Default ON. Use --no-nnm to disable.
+    group.add_argument("--nnm", action=argparse.BooleanOptionalAction, default=True,
+                       help="Enable Nuclear Norm Matching auxiliary loss. "
+                            "Default: enabled. Use --no-nnm to disable.")
+    group.add_argument("--nnm-ratio", type=float, default=0.1,
+                       help="Weight for NNM loss: loss += nnm_ratio * nnm_loss.")
+
+    # layer selection
+    group.add_argument("--nnm-n-layers", type=int, default=4,
+                       help="Number of (student, teacher) layer pairs used for NNM.")
+
+    # teacher centroid pre-pass
+    group.add_argument("--nnm-K", type=int, default=128,
+                       help="Number of teacher centroids per layer.")
+    group.add_argument("--nnm-eta", type=float, default=0.05,
+                       help="EMA rate for centroid pre-pass.")
+    group.add_argument("--nnm-T-dead", type=int, default=50,
+                       help="Dead-centroid revival threshold.")
+    group.add_argument("--nnm-centroid-batches", type=int, default=500,
+                       help="Number of batches in teacher centroid pre-pass.")
+
+    # random projection + Newton-Schulz
+    group.add_argument("--nnm-d-prime", type=int, default=256,
+                       help="Random projection target dimension.")
+    group.add_argument("--nnm-ns-iters", type=int, default=5,
+                       help="Newton-Schulz iterations for polar factor.")
+
+    # warmup + ramp schedule
+    group.add_argument("--nnm-warmup-steps", type=int, default=0,
+                       help="Number of global steps to skip NNM at the start "
+                            "of training (NNM loss = 0). Saves compute and "
+                            "lets the student stabilize LM/KD loss first.")
+    group.add_argument("--nnm-ramp-steps", type=int, default=0,
+                       help="After warmup, linearly ramp nnm_ratio from 0 to "
+                            "its target over this many steps. 0 = hard step.")
+
+    return parser
+
+
 def get_args():
     parser = argparse.ArgumentParser()
     parser = add_model_args(parser)
@@ -256,6 +303,7 @@ def get_args():
     parser = deepspeed.add_config_arguments(parser)
     parser = add_ab_args(parser)
     parser = add_amid_args(parser)
+    parser = add_nnm_args(parser)   # ═══ NNM ═══
 
     args, unknown = parser.parse_known_args()
 
@@ -309,6 +357,8 @@ def get_args():
             (f"-mp{args.model_parallel_size}" if args.model_parallel > 0 else "") + \
             (
                 f"-lora-{args.peft_lora_r}-{args.peft_lora_alpha}-{args.peft_lora_dropout}" if args.peft == "lora" else "") + \
+            # ═══ NNM: encode in save path so different NNM configs don't collide ═══
+            (f"-nnm{args.nnm_ratio}K{args.nnm_K}L{args.nnm_n_layers}" if args.nnm else "") + \
             args.save_additional_suffix
         )
         args.save = save_path
