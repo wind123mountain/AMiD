@@ -1,8 +1,8 @@
 #!/bin/bash
 TP_SIZE=${1:-2}
 
-MODEL_PATH="google/gemma-2-9b"
-OUTPUT_DIR="data/dpo/google/gemma-2-9b"
+MODEL_PATH="google/gemma-2-9b-it"
+OUTPUT_DIR="data/dpo/google/gemma-2-9b-it"
 OUTPUT_FILE="generated_train.jsonl"
 
 echo "Start gen traces..."
