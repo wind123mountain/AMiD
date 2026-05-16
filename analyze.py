@@ -398,8 +398,9 @@ def main():
     if not args.skip_distilled and os.path.isdir(args.student_ckpt):
         print(f"\n[3/3] Student-distilled ({args.student_ckpt})")
         student_d = load_model_safely(args.student_ckpt, device)
+        s_tokenizer = AutoTokenizer.from_pretrained(args.student_ckpt, trust_remote_code=True, padding_side="right")
         all_results["Student-distilled"] = compute_layer_metrics(
-            student_d, tokenizer, prompts, device, args.max_len,
+            student_d, s_tokenizer, prompts, device, args.max_len,
         )
         del student_d
         torch.cuda.empty_cache()
