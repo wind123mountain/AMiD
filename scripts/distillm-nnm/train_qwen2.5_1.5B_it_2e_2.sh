@@ -39,7 +39,7 @@ KD_R=0.75
 SKEW_ALPHA=0.1
 
 # ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.1
+NNM_RATIO=0.9
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
