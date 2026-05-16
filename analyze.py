@@ -34,7 +34,10 @@ import matplotlib.pyplot as plt
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tqdm import tqdm
+import transformers.integrations.peft as peft_integration
 
+
+peft_integration.is_peft_available = lambda: False
 
 # ════════════════════════════════════════════════════════════════
 #  Metric computations
