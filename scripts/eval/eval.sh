@@ -52,6 +52,7 @@ run_eval() {
         --apply_chat_template
         --log_samples
         --output_path "${OUT}"
+        --gen_kwargs "max_new_tokens=2048,temperature=0.0"
     )
 
     {
@@ -60,34 +61,34 @@ run_eval() {
         echo "Start: $(date)"
         echo "=========================================="
 
-        echo ">>> [1/10] GSM8K"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5
+        # echo ">>> [1/10] GSM8K"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5
 
         echo ">>> [2/10] MATH (Hendrycks full)"
         lm_eval "${BASE_ARGS_MATH[@]}" \
             --tasks hendrycks_math \
             --num_fewshot 4 
 
-        echo ">>> [3/10] MMLU-STEM"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
+        # echo ">>> [3/10] MMLU-STEM"
+        # lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
 
-        echo ">>> [4/10] SciQ"
-        lm_eval "${BASE_ARGS[@]}" --tasks sciq --num_fewshot 0
+        # echo ">>> [4/10] SciQ"
+        # lm_eval "${BASE_ARGS[@]}" --tasks sciq --num_fewshot 0
 
-        echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --num_fewshot 3 --confirm_run_unsafe_code
+        # echo ">>> [5/10] MBPP"
+        # lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --num_fewshot 3 --confirm_run_unsafe_code
 
-        echo ">>> [6/10] GSM-Plus (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus --num_fewshot 5
+        # echo ">>> [6/10] GSM-Plus (5-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus --num_fewshot 5
 
-        echo ">>> [7/10] MMLU-Pro-Math (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math --num_fewshot 5
+        # echo ">>> [7/10] MMLU-Pro-Math (5-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math --num_fewshot 5
 
-        echo ">>> [8/10] BBH CoT (3-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks bbh_cot_fewshot --num_fewshot 3
+        # echo ">>> [8/10] BBH CoT (3-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks bbh_cot_fewshot --num_fewshot 3
 
-        echo ">>> [9/10] MuSR (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0
+        # echo ">>> [9/10] MuSR (0-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0
 
         echo ">>> [10/10] IFEval (0-shot)"
         lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0
