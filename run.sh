@@ -10,6 +10,6 @@
 
 # bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_1e.sh
 bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_2e.sh
-# bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_3e.sh
+bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_3e.sh
 bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_1e_2.sh
 bash ./scripts/distillm-nnm/train_qwen2.5_1.5B_it_2e_2.sh
