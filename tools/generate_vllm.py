@@ -6,6 +6,8 @@ import argparse
 import multiprocessing as mp
 from transformers import AutoTokenizer
 from datasets import load_dataset
+import torch
+from vllm import LLM, SamplingParams
 
 def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_path):
     import os
@@ -98,22 +100,26 @@ def run_parallel_inference(model_path, output_dir, output_file, num_gpus):
 
     print(f"🔄 Chia {total_data} prompts thành {num_gpus} phần (khoảng {chunk_size} prompts/GPU)...")
 
-    for i in range(num_gpus):
-        start_idx = i * chunk_size
-        end_idx = min((i + 1) * chunk_size, total_data)
-        
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    gpu_ids = [x.strip() for x in cuda_devices.split(",") if x.strip()] if cuda_devices else []
+    num_gpus = len(gpu_ids) if gpu_ids else torch.cuda.device_count()
+
+    for idx, gpu_id in enumerate(gpu_ids or range(num_gpus)):
+        start_idx = idx * chunk_size
+        end_idx = min((idx + 1) * chunk_size, total_data)
+
         if start_idx >= total_data:
             break
-            
+
         data_chunk = data[start_idx:end_idx]
         prompts_chunk = prompts_all[start_idx:end_idx]
-        
-        temp_out_path = os.path.join(output_dir, f"temp_worker_{i}.jsonl")
+
+        temp_out_path = os.path.join(output_dir, f"temp_worker_{idx}.jsonl")
         temp_files.append(temp_out_path)
-        
+
         p = mp.Process(
-            target=worker_inference, 
-            args=(i, model_path, data_chunk, prompts_chunk, temp_out_path)
+            target=worker_inference,
+            args=(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_path)
         )
         p.start()
         processes.append(p)
