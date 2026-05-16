@@ -21,7 +21,7 @@ dependencies = [
     "rouge-score",
     "rich",
     "setuptools",
-    "vllm==0.17.0"
+    "vllm==0.15.1"
 ]
 
 [tool.uv]
