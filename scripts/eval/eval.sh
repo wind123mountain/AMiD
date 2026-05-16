@@ -1,12 +1,19 @@
 #!/bin/bash
 
-
 TP=2
 
 LOG_DIR="outputs/eval_results/logs"
 OUT_DIR="outputs/eval_results/vllm"
 mkdir -p "${LOG_DIR}" "${OUT_DIR}"
 
+# Auto-patch bug hendrycks_math: Answer is not a string
+TASK_FILE=$(python -c "import lm_eval, os; print(os.path.join(os.path.dirname(lm_eval.__file__), 'api/task.py'))" 2>/dev/null)
+if [ -n "${TASK_FILE}" ]; then
+    if ! grep -q "if not isinstance(answer_text, str): answer_text = str(answer_text)" "${TASK_FILE}"; then
+        sed -i 's/assert isinstance(answer_text, str).*/if not isinstance(answer_text, str): answer_text = str(answer_text)/' "${TASK_FILE}"
+        echo "[PATCH] Patched hendrycks_math bug: ${TASK_FILE}"
+    fi
+fi
 
 run_eval() {
     local LABEL=$1
@@ -28,17 +35,38 @@ run_eval() {
         --output_path "${OUT}"
     )
 
+    # MBPP: không dùng apply_chat_template, không fewshot_as_multiturn
+    BASE_ARGS_CODE=(
+        --model vllm
+        --model_args "${MODEL_ARGS}"
+        --batch_size auto
+        --log_samples
+        --output_path "${OUT}"
+    )
+
+    # Thêm BASE_ARGS_MATH — không có --fewshot_as_multiturn
+    BASE_ARGS_MATH=(
+        --model vllm
+        --model_args "${MODEL_ARGS}"
+        --batch_size auto
+        --apply_chat_template
+        --log_samples
+        --output_path "${OUT}"
+    )
+
     {
         echo "=========================================="
         echo "Label: ${LABEL}"
         echo "Start: $(date)"
         echo "=========================================="
 
-        echo ">>> [1/10] GSM8K (CoT)"
+        echo ">>> [1/10] GSM8K"
         lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5
 
-        echo ">>> [2/10] MATH500 (tốt nhất)"
-        lm_eval "${BASE_ARGS[@]}" --tasks hendrycks_math500 --num_fewshot 4
+        echo ">>> [2/10] MATH (Hendrycks full)"
+        lm_eval "${BASE_ARGS_MATH[@]}" \
+            --tasks hendrycks_math \
+            --num_fewshot 4 
 
         echo ">>> [3/10] MMLU-STEM"
         lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
@@ -47,7 +75,24 @@ run_eval() {
         lm_eval "${BASE_ARGS[@]}" --tasks sciq --num_fewshot 0
 
         echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS[@]}" --tasks mbpp --num_fewshot 0 --confirm_run_unsafe_code
+        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --num_fewshot 3 --confirm_run_unsafe_code
+
+        echo ">>> [6/10] GSM-Plus (5-shot)"
+        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus --num_fewshot 5
+
+        echo ">>> [7/10] MMLU-Pro-Math (5-shot)"
+        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math --num_fewshot 5
+
+        echo ">>> [8/10] BBH CoT (3-shot)"
+        lm_eval "${BASE_ARGS[@]}" --tasks bbh_cot_fewshot --num_fewshot 3
+
+        echo ">>> [9/10] MuSR (0-shot)"
+        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0
+
+        echo ">>> [10/10] IFEval (0-shot)"
+        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0
+
+
 
         echo "=========================================="
         echo "DONE: ${LABEL} | $(date)"
@@ -58,11 +103,9 @@ run_eval() {
 }
 
 
-
 CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
     "qwen2.5-1.5B-it-nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0-1246" \
     "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.75,trust_remote_code=True"
-
 
 echo "=== Done ==="
 

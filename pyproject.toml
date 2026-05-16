@@ -22,7 +22,8 @@ dependencies = [
     "rich",
     "setuptools",
     "vllm==0.15.1",
-    "lm-eval"
+    "lm-eval",
+    "langdetec"
 ]
 
 [tool.uv]
