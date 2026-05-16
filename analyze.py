@@ -336,20 +336,20 @@ def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "gsm8k"
 def parse_args():
     p = argparse.ArgumentParser(description="Layer-wise metric analysis")
     p.add_argument("--teacher-id",  type=str,
-                   default="Qwen/Qwen2.5-Math-1.5B-Instruct")
+                   default="Qwen/Qwen2.5-14B-Instruct")
     p.add_argument("--student-id",  type=str,
-                   default="Qwen/Qwen2.5-0.5B")
+                   default="Qwen/Qwen2.5-1.5B-Instruct")
     p.add_argument("--student-ckpt", type=str,
-                   default="./nnm_kd_v3_outputs/epoch_1",
+                   default="results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246",
                    help="Path to distilled student checkpoint.")
-    p.add_argument("--n-samples",   type=int, default=30,
+    p.add_argument("--n-samples",   type=int, default=100,
                    help="Number of prompts to average over.")
-    p.add_argument("--max-len",     type=int, default=256,
+    p.add_argument("--max-len",     type=int, default=512,
                    help="Max token length per prompt.")
     p.add_argument("--dataset",     type=str, default="gsm8k",
                    choices=["wikitext", "gsm8k"])
     p.add_argument("--save-dir",    type=str, default="./layer_analysis")
-    p.add_argument("--device",      type=str, default="cuda:0")
+    p.add_argument("--device",      type=str, default="cuda:7")
     p.add_argument("--skip-distilled", action="store_true",
                    help="Skip distilled student (if checkpoint not available).")
     return p.parse_args()
