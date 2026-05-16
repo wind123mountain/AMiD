@@ -206,7 +206,8 @@ def load_model_safely(name_or_path: str, device: str, dtype=torch.float16):
             name_or_path,
             torch_dtype=dtype,
             trust_remote_code=True,
-            device_map={"": device} 
+            device_map={"": device},
+            _adapter_kwargs={"is_trainable": False},
         )
     except Exception as e:
         print(f"  device_map failed ({e}), falling back to .to(device)")
