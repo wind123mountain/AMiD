@@ -20,7 +20,8 @@ dependencies = [
     "torch==2.9.1",
     "rouge-score",
     "rich",
-    "setuptools"
+    "setuptools",
+    "vllm==0.17.0"
 ]
 
 [tool.uv]
