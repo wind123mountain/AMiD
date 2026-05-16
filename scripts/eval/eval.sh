@@ -119,4 +119,4 @@ echo "=== Done ==="
 python tools/merge_model.py \
   --base_model Qwen/Qwen2.5-1.5B-Instruct \
   --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246 \
-  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246_full
