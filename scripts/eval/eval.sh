@@ -64,10 +64,16 @@ run_eval() {
         # echo ">>> [1/10] GSM8K"
         # lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5
 
-        echo ">>> [2/10] MATH (Hendrycks full)"
-        lm_eval "${BASE_ARGS_MATH[@]}" \
-            --tasks hendrycks_math \
-            --num_fewshot 4 
+        # echo ">>> [2/10] MATH (Hendrycks full)"
+        # lm_eval "${BASE_ARGS_MATH[@]}" \
+        #     --tasks hendrycks_math \
+        #     --num_fewshot 4 \
+        #     --system_instruction "You are a math teacher. Solve step by step. Put your final answer in \\boxed{ANSWER}."
+
+        echo ">>> [2/10] MATH (Minerva format)"
+        lm_eval "${BASE_ARGS[@]}" \
+            --tasks minerva_math \
+            --num_fewshot 4
 
         # echo ">>> [3/10] MMLU-STEM"
         # lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
@@ -90,8 +96,8 @@ run_eval() {
         # echo ">>> [9/10] MuSR (0-shot)"
         # lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0
 
-        echo ">>> [10/10] IFEval (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0
+        # echo ">>> [10/10] IFEval (0-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0
 
 
 
