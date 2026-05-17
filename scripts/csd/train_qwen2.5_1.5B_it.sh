@@ -26,7 +26,7 @@ DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # hp
 BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=8
+GRAD_ACC=2
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1024
