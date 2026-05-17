@@ -36,7 +36,7 @@ from transformers import (
 )
 from transformers.trainer_callback import TrainerCallback
 from transformers.trainer_utils import EvalPrediction
-from transformers.utils import is_peft_available
+from transformers.utils import is_peft_available, is_sagemaker_mp_enabled
 
 from trl.models import prepare_deepspeed
 from trl.models.utils import unwrap_model_for_generation
@@ -61,6 +61,9 @@ if is_peft_available():
 
 if is_wandb_available():
     import wandb
+
+if is_sagemaker_mp_enabled():
+    import smdistributed.modelparallel.torch as smp
 
 
 def normalize_entropy(entropy):
@@ -243,6 +246,71 @@ class DistillTrainer(SFTTrainer):
             print(f"[NNM] enabled: ratio={self.nnm_ratio}, "
                   f"warmup={self.nnm_warmup_steps}, ramp={self.nnm_ramp_steps}, "
                   f"K={K}, layers={self.nnm_state['s_mid']}")
+            
+    def create_optimizer(self):
+        proj_lr = getattr(self.args, 'proj_lr', None)
+        if proj_lr is None or proj_lr < 0:
+            proj_lr = self.args.learning_rate
+        self.args.proj_lr = proj_lr
+
+        opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+
+        if self.optimizer is None:
+            decay_parameters = self.get_decay_parameter_names(opt_model)
+            optimizer_grouped_parameters = [
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [
+                        p for n, p in opt_model.named_parameters() if (n not in decay_parameters and p.requires_grad)
+                    ],
+                    "weight_decay": 0.0,
+                },
+                {"params": list(self.projectors.parameters()), "lr": proj_lr}
+            ]
+
+            if self.optimizer_cls_and_kwargs is not None:
+                optimizer_cls, optimizer_kwargs = self.optimizer_cls_and_kwargs
+            else:
+                optimizer_cls, optimizer_kwargs = self.get_optimizer_cls_and_kwargs(self.args, opt_model)
+
+            # Overwrite `params` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for GaLore optimizer.
+            if "params" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("params")
+
+            # Overwrite `model` in case it's created by `get_optimizer_cls_and_kwargs`
+            # e.g. for LOMO optimizer.
+            if "model" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("model")
+
+            # For layer-wise dummy optimizers we overwrite optimizer_grouped_parameters with `optimizer_dict`
+            # to avoid arguments conflicts.
+            if "optimizer_dict" in optimizer_kwargs:
+                optimizer_grouped_parameters = optimizer_kwargs.pop("optimizer_dict")
+
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+            if "bitsandbytes" in str(optimizer_cls) and optimizer_kwargs.get("optim_bits", None) == 8:
+                import bitsandbytes
+
+                manager = bitsandbytes.optim.GlobalOptimManager.get_instance()
+
+                skipped = 0
+                for module in opt_model.modules():
+                    if isinstance(module, nn.Embedding):
+                        skipped += sum({p.data_ptr(): p.numel() for p in module.parameters()}.values())
+                        manager.register_module_override(module, "weight", {"optim_bits": 32})
+
+        if is_sagemaker_mp_enabled():
+            self.optimizer = smp.DistributedOptimizer(self.optimizer)
+
+        return self.optimizer
+
 
     # ═══════════════════════════════════════════════════════════════
     #  NNM helpers
