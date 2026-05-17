@@ -238,7 +238,6 @@ def prepare_nnm(args, student, teacher, train_dataset, tokenizer, device):
         for p in projectors:
             p.weight.copy_(torch.randn(d_t, d_s, generator=g) * 0.02)
     projectors = projectors.to(dtype=proj_dtype)
-    student.projectors = projectors
     _print0(f"[NNM] attached {len(projectors)} projectors "
             f"({d_s} -> {d_t}) to student")
 
@@ -322,7 +321,7 @@ def prepare_nnm(args, student, teacher, train_dataset, tokenizer, device):
         "t_centroids":   t_centroids,
         "R":             R,
         "layer_weights": layer_weights,
-    }
+    }, projectors
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -393,7 +392,7 @@ def main():
     # ═══════════════════════════════════════════════════════════════
     nnm_state = None
     if args.nnm:
-        nnm_state = prepare_nnm(args, student, teacher,
+        nnm_state, projectors = prepare_nnm(args, student, teacher,
                                 train_dataset, tokenizer, device)
 
     # ── Training args ──
@@ -464,6 +463,7 @@ def main():
         nnm_warmup_steps=args.nnm_warmup_steps,
         nnm_ramp_steps=args.nnm_ramp_steps,
         nnm_ns_iters=args.nnm_ns_iters,
+        projectors=projectors,
     )
 
     # ═══════════════════════════════════════════════════════════════
