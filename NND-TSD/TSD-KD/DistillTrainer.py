@@ -158,6 +158,7 @@ class DistillTrainer(SFTTrainer):
         nnm_warmup_steps: int = 0,
         nnm_ramp_steps: int = 0,
         nnm_ns_iters: int = 5,
+        projectors: Optional[nn.Module] = None,
     ):
         # add remove_unused_columns=False to the dataclass args
         args.remove_unused_columns = False
@@ -246,6 +247,8 @@ class DistillTrainer(SFTTrainer):
             print(f"[NNM] enabled: ratio={self.nnm_ratio}, "
                   f"warmup={self.nnm_warmup_steps}, ramp={self.nnm_ramp_steps}, "
                   f"K={K}, layers={self.nnm_state['s_mid']}")
+            
+        self.projectors = projectors
             
     def create_optimizer(self):
         proj_lr = getattr(self.args, 'proj_lr', None)
