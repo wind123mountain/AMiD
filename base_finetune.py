@@ -37,7 +37,7 @@ from utils import load_parallel, save_parallel
 from utils import get_tokenizer, get_model
 
 from distillm import forward_kl, reverse_kl, js_distance, tv_distance, ab_div, AKL, alphanet, bdkd
-from distillm import skewed_forward_kl, skewed_reverse_kl
+from distillm import skewed_forward_kl, skewed_reverse_kl, csd
 from distillm import SampleGenerator, ReplayBuffer
 
 from rouge_metric import compute_metrics
@@ -180,11 +180,11 @@ def get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model
             distil_loss = alphanet(logits, teacher_logits, no_model_batch, args.ab_alpha, args.ab_beta)
         elif "akl" in args.type:
             distil_loss = AKL(logits, teacher_logits, no_model_batch)
-
         elif "amid" in args.type:
             from distillm import amid
             distil_loss = amid(logits, teacher_logits, no_model_batch, args, epoch=epoch)
-
+        elif "csd" in args.type:
+            distil_loss = csd(logits, teacher_logits, no_model_batch)
         else:
             raise ValueError(f"Distillation type {args.type} is not supported yet.")
     return distil_loss

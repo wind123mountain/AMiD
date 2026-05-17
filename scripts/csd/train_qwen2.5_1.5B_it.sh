@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(1)
+GPUS=(2 3)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -17,16 +17,16 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
 
 # model
 BASE_PATH=.
-CKPT_NAME="qwen2.5-0.5B"
-CKPT="Qwen/Qwen2.5-0.5B"
-TEACHER_CKPT_NAME="qwen2.5-Math-1.5B-Instruct"
-TEACHER_CKPT="Qwen/Qwen2.5-Math-1.5B-Instruct"
+CKPT_NAME="qwen2.5-1.5B-Instruct"
+CKPT="Qwen/Qwen2.5-1.5B-Instruct"
+TEACHER_CKPT_NAME="qwen2.5-14B-Instruct"
+TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
 # data
-DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-Math-1.5B-Instruct/"
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # hp
-BATCH_SIZE=8
+BATCH_SIZE=4
 LR=1e-4
-GRAD_ACC=4
+GRAD_ACC=2
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1024
@@ -84,7 +84,7 @@ OPTS+=" --seed ${SEED}"
 OPTS+=" --deepspeed"
 OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json" # From MiniLLM to avoid OVERFLOW
 # type
-OPTS+=" --type adaptive-amid"
+OPTS+=" --type adaptive-csd"
 # gen
 OPTS+=" --do-sample"
 OPTS+=" --top-k 0"
@@ -103,11 +103,16 @@ OPTS+=" --amid-div-order ${AMID_DIV_ORDER}"
 OPTS+=" --amid-alpha ${AMID_ALPHA}"
 OPTS+=" --amid-lam ${AMID_LAM}"
 
+OPTS+=" --peft lora"
+OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-alpha 128"
+OPTS+=" --peft-lora-dropout 0.05"
+
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./base_finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"

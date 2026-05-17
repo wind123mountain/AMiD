@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(1)
+GPUS=(2 3)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -17,16 +17,16 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
 
 # model
 BASE_PATH=.
-CKPT_NAME="llama3.2-3B-Instruct"
-CKPT="meta-llama/Llama-3.2-3B-Instruct"
-TEACHER_CKPT_NAME="deepSeek-R1-Distill-Llama-8B"
-TEACHER_CKPT="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+CKPT_NAME="qwen3-1.7B"
+CKPT="Qwen/Qwen3-1.7B"
+TEACHER_CKPT_NAME="qwen3-8B"
+TEACHER_CKPT="Qwen/Qwen3-8B"
 # data
-DATA_DIR="./processed_data/ultraInteract/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/"
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen3-8B/"
 # hp
-BATCH_SIZE=2
+BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=16
+GRAD_ACC=2
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1024
@@ -82,9 +82,9 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json" # From MiniLLM to avoid OVERFLOW
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero0_bf16.json" # From MiniLLM to avoid OVERFLOW
 # type
-OPTS+=" --type adaptive-amid"
+OPTS+=" --type adaptive-csd"
 # gen
 OPTS+=" --do-sample"
 OPTS+=" --top-k 0"
@@ -112,7 +112,7 @@ export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./base_finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"
