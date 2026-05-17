@@ -12,8 +12,14 @@ nnm_K=128
 nnm_n_layers=4
 nnm_warmup_steps=200
 nnm_ramp_steps=100
-
+use_lora=1
+lora_r=16
+lora_alpha=32
+lora_dropout=0.05
+lora_target_modules="q_proj,k_proj,v_proj,o_proj"
+ 
 if [ "$use_nnm" = "1" ]; then nnm_flag="--nnm"; else nnm_flag="--no-nnm"; fi
+if [ "$use_lora" = "1" ]; then lora_flag="--use-lora"; else lora_flag=""; fi
 
 accelerate launch --config_file accelerate_ddp_config.yaml train.py \
     --beta $beta \

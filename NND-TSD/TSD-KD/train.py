@@ -20,6 +20,9 @@ Run example (4-GPU H200, NNM ON):
         --nnm --nnm-ratio 0.1 --nnm-K 128 --nnm-n-layers 4 \
         --nnm-warmup-steps 200 --nnm-ramp-steps 100
 
+LoRA variant (add):
+    ... --use-lora --lora-r 16 --lora-alpha 32 --lora-dropout 0.05
+
 Disable NNM (pure TSD-KD baseline):
     ... --no-nnm
 """
@@ -110,6 +113,19 @@ def parse_args():
     p.add_argument("--nnm-ns-iters", type=int, default=5)
     p.add_argument("--nnm-warmup-steps", type=int, default=0)
     p.add_argument("--nnm-ramp-steps", type=int, default=0)
+
+    # ── LoRA / PEFT ──
+    p.add_argument("--use-lora", action="store_true",
+                   help="Wrap student with LoRA (PEFT). NNM projectors stay "
+                        "fully trainable via modules_to_save.")
+    p.add_argument("--lora-r", type=int, default=16)
+    p.add_argument("--lora-alpha", type=int, default=32)
+    p.add_argument("--lora-dropout", type=float, default=0.05)
+    p.add_argument("--lora-target-modules", type=str,
+                   default="q_proj,k_proj,v_proj,o_proj",
+                   help="Comma-separated module names to apply LoRA to. "
+                        "For Llama/Qwen attention: q_proj,k_proj,v_proj,o_proj. "
+                        "Add gate_proj,up_proj,down_proj to cover MLP too.")
 
     return p.parse_args()
 
@@ -315,7 +331,7 @@ def prepare_nnm(args, student, teacher, train_dataset, tokenizer, device):
 
 def main():
     args = parse_args()
-    
+
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if torch.cuda.is_available():
         device = torch.device(f"cuda:{local_rank}")
@@ -374,8 +390,6 @@ def main():
     #
     #  Only rank 0 loads teacher to GPU and builds centroids; the result is
     #  written to {output_dir}/_nnm_cache/ and the other ranks read it.
-    #  Student goes to GPU on every rank so projectors are attached on the
-    #  same device as the model.
     # ═══════════════════════════════════════════════════════════════
     nnm_state = None
     if args.nnm:
@@ -409,6 +423,31 @@ def main():
         seed=args.seed,
     )
 
+    # ═══════════════════════════════════════════════════════════════
+    #  LoRA / PEFT config (optional)
+    #
+    #  When --use-lora is set we wrap the student with LoRA adapters.
+    #  Crucially we list "projectors" in `modules_to_save` so PEFT keeps
+    #  the NNM projectors fully trainable instead of freezing them with
+    #  the rest of the base model.
+    # ═══════════════════════════════════════════════════════════════
+    peft_config = None
+    if args.use_lora:
+        from peft import LoraConfig
+        target_modules = [m.strip() for m in args.lora_target_modules.split(",")
+                          if m.strip()]
+        peft_config = LoraConfig(
+            r=args.lora_r,
+            lora_alpha=args.lora_alpha,
+            lora_dropout=args.lora_dropout,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules=target_modules,
+            modules_to_save=(["projectors"] if args.nnm else None),
+        )
+        _print0(f"[LoRA] enabled: r={args.lora_r}, alpha={args.lora_alpha}, "
+                f"dropout={args.lora_dropout}, targets={target_modules}")
+
     trainer = DistillTrainer(
         model=student,
         teacher_model=teacher,
@@ -418,6 +457,7 @@ def main():
         eval_dataset=eval_dataset,
         token_entropy_percentile_threshold=args.threshold,
         indirect_kd_alpha=args.indirect_kd_alpha,
+        peft_config=peft_config,
         # NNM
         nnm_state=nnm_state,
         nnm_ratio=args.nnm_ratio,
@@ -425,6 +465,32 @@ def main():
         nnm_ramp_steps=args.nnm_ramp_steps,
         nnm_ns_iters=args.nnm_ns_iters,
     )
+
+    # ═══════════════════════════════════════════════════════════════
+    #  Safety net: force NNM projector grads ON.
+    #
+    #  PEFT freezes the entire base model and keeps only LoRA adapters
+    #  + `modules_to_save` trainable. modules_to_save="projectors" above
+    #  usually handles this, but PEFT's name resolution depends on the
+    #  attribute name in the wrapped model. After Trainer is built, we
+    #  walk the model and explicitly set requires_grad=True on anything
+    #  whose path contains 'projectors'. Idempotent — safe whether or
+    #  not LoRA is enabled.
+    # ═══════════════════════════════════════════════════════════════
+    if args.nnm:
+        n_enabled = 0
+        for name, p in trainer.model.named_parameters():
+            if "projectors" in name:
+                p.requires_grad = True
+                n_enabled += p.numel()
+        _print0(f"[NNM] re-enabled grad on projector params: {n_enabled} elements")
+
+    if args.use_lora:
+        # Print trainable/total breakdown so you can sanity-check
+        if hasattr(trainer.model, "print_trainable_parameters"):
+            if is_main_process():
+                trainer.model.print_trainable_parameters()
+
     trainer.train()
 
 

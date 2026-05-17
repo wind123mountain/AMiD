@@ -13,8 +13,14 @@ nnm_K=128
 nnm_n_layers=4
 nnm_warmup_steps=200
 nnm_ramp_steps=100
-
+use_lora=1
+lora_r=32
+lora_alpha=64
+lora_dropout=0.05
+lora_target_modules="q_proj,k_proj,v_proj,o_proj,gate_proj,down_proj,up_proj"
+ 
 if [ "$use_nnm" = "1" ]; then nnm_flag="--nnm"; else nnm_flag="--no-nnm"; fi
+if [ "$use_lora" = "1" ]; then lora_flag="--use-lora --lora-r $lora_r --lora-alpha $lora_alpha --lora-dropout $lora_dropout --lora-target-modules $lora_target_modules"; else lora_flag=""; fi
 
 mkdir -p $output_dir
 
@@ -26,6 +32,12 @@ CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file accelerate_ddp_config.y
     --student-model $model_name \
     --teacher-model $teacher_model_name \
     --report-to none \
+    --lr 1e-4 \
+    --batch-size 8 \
+    --eval-batch-size 32 \
+    --gradient-accumulation-steps 4 \
+    --epochs 2 \
+    $lora_flag \
     $nnm_flag \
     --nnm-ratio $nnm_ratio \
     --nnm-K $nnm_K \
@@ -33,5 +45,4 @@ CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file accelerate_ddp_config.y
     --nnm-warmup-steps $nnm_warmup_steps \
     --nnm-ramp-steps $nnm_ramp_steps \
     --dataset Qwen/Qwen2.5-14B-Instruct/generated_train.jsonl \
-    --output-dir $output_dir \
-    --num-train-epochs 2 2>&1 | tee $output_dir/train.log
+    --output-dir $output_dir 2>&1 | tee $output_dir/train.log
