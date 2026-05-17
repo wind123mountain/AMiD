@@ -107,9 +107,7 @@ def get_learning_rate_scheduler(args, optimizer):
     return lr_scheduler
 
 
-def setup_model_and_optimizer(args, ds_config, device, set_optim=True):
-    # get the model
-    model = get_model(args, device)
+def setup_model_and_optimizer(args, model, ds_config, device, set_optim=True):
     # get the optimizer and lr_scheduler
     if set_optim:
         optimizer = get_optimizer(args, model)
@@ -569,16 +567,19 @@ def main():
         if args.eval_interval == -1:
             args.eval_interval = args.train_iters_per_epoch
 
-    model, optimizer, lr_scheduler = setup_model_and_optimizer(args, ds_config, device, set_optim=args.do_train)
+    model = get_model(args, device)
 
     if args.teacher_model_type is None:
         args.teacher_model_type = args.model_type
 
     if args.teacher_model_path is not None:
         teacher_model = get_teacher_model(args, device)
+        model.resize_token_embeddings(teacher_model.config.vocab_size)
     else:
         teacher_model = None
 
+    
+    model, optimizer, lr_scheduler = setup_model_and_optimizer(args, model, ds_config, device, set_optim=args.do_train)
     if args.do_train:
         model = finetune(args, tokenizer, model, optimizer, lr_scheduler, dataset, device, teacher_model=teacher_model)
 
