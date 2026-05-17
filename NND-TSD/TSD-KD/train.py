@@ -353,13 +353,17 @@ def main():
     assert student.lm_head.weight.shape[0] == teacher.lm_head.weight.shape[0]
 
     # ── Dataset ──
-    ds = load_dataset(args.dataset)["train"].train_test_split(test_size=0.01)
+    ds = ds = load_dataset(
+        "VoCuc/UltraInteract-Infer",
+        data_files=args.dataset,
+        split="train"
+    ).train_test_split(test_size=0.01)
 
     def add_messages(example):
         return {
             "messages": [
-                {"role": "user",      "content": example["instruction"]},
-                {"role": "assistant", "content": example["response"]},
+                {"role": "user",      "content": example["prompt"]},
+                {"role": "assistant", "content": example["generated_text"]},
             ]
         }
 

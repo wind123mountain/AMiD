@@ -15,7 +15,7 @@ nnm_ramp_steps=100
 
 if [ "$use_nnm" = "1" ]; then nnm_flag="--nnm"; else nnm_flag="--no-nnm"; fi
 
-accelerate launch --config_file accelerate_ddp_config.yaml train.py \
+CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file accelerate_ddp_config.yaml train.py \
     --beta $beta \
     --lmbda $lambda \
     --threshold $threshold \
@@ -27,4 +27,5 @@ accelerate launch --config_file accelerate_ddp_config.yaml train.py \
     --nnm-K $nnm_K \
     --nnm-n-layers $nnm_n_layers \
     --nnm-warmup-steps $nnm_warmup_steps \
-    --nnm-ramp-steps $nnm_ramp_steps
+    --nnm-ramp-steps $nnm_ramp_steps \
+    --dataset Qwen/Qwen2.5-14B-Instruct/generated_train.jsonl
