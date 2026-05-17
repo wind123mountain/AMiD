@@ -458,7 +458,7 @@ class DistillTrainer(SFTTrainer):
         nnm_value = torch.tensor(0.0, device=loss.device)
         if use_nnm:
             student_unwrapped = self._get_student_unwrapped(model)
-            projectors = student_unwrapped.projectors
+            projectors = self.projectors
 
             # Build NNM-specific labels: copy of inputs["labels"] with the
             # prompt span explicitly zeroed (-100). Keeps the original
