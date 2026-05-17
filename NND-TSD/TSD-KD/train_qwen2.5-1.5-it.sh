@@ -22,10 +22,12 @@ CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file accelerate_ddp_config.y
     --indirect-kd-alpha $indirect_kd_alpha \
     --student-model $model_name \
     --teacher-model $teacher_model_name \
+    --report-to none \
     $nnm_flag \
     --nnm-ratio $nnm_ratio \
     --nnm-K $nnm_K \
     --nnm-n-layers $nnm_n_layers \
     --nnm-warmup-steps $nnm_warmup_steps \
     --nnm-ramp-steps $nnm_ramp_steps \
-    --dataset Qwen/Qwen2.5-14B-Instruct/generated_train.jsonl
+    --dataset Qwen/Qwen2.5-14B-Instruct/generated_train.jsonl \
+    --output-dir results/qwen2.5-1.5B-Instruc-TSD-NNM 2>&1 | tee results/qwen2.5-1.5B-Instruc-TSD-NNM/train.log
