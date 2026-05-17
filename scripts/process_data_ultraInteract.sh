@@ -31,3 +31,12 @@ PYTHONPATH=. python ./tools/process_data_ultraInteract.py \
     --only-prompt \
     --model-type qwen
 
+PYTHONPATH=. python ./tools/process_data_ultraInteract.py \
+    --data-dir ./data/dpo/Qwen/Qwen3-8B/generated_train.jsonl \
+    --processed-data-dir ./processed_data/ultraInteract \
+    --model-path Qwen/Qwen3-8B \
+    --data-process-workers 32 \
+    --max-prompt-length 512 \
+    --dev-num 200 \
+    --only-prompt \
+    --model-type qwen
