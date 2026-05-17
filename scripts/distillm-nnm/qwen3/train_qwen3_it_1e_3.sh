@@ -88,7 +88,7 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json"
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero0_bf16.json"
 # ───── type: adaptive + SFKL ─────
 OPTS+=" --type adaptive-sfkl"
 OPTS+=" --skew-alpha ${SKEW_ALPHA}"

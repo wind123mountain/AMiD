@@ -82,7 +82,7 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero1_bf16.json" # From MiniLLM to avoid OVERFLOW
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero0_bf16.json" # From MiniLLM to avoid OVERFLOW
 # type
 OPTS+=" --type adaptive-amid"
 # gen
