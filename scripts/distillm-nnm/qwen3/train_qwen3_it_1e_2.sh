@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(0 1)
+GPUS=(4 5 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -17,33 +17,35 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
 
 # ───── model ─────
 BASE_PATH=.
-CKPT_NAME="llama3.2-3B-Instruct"
-CKPT="meta-llama/Llama-3.2-3B-Instruct"
-TEACHER_CKPT_NAME="deepSeek-R1-Distill-Llama-8B"
-TEACHER_CKPT="deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+CKPT_NAME="qwen3-1.7B"
+CKPT="Qwen/Qwen3-1.7B"
+TEACHER_CKPT_NAME="qwen3-8B"
+TEACHER_CKPT="Qwen/Qwen3-8B"
 
 # ───── data ─────
-DATA_DIR="./processed_data/ultraInteract/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/"
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen3-8B/"
 
-# ───── hp (H200 141GB — teacher chỉ 8B, có thể batch rất lớn) ─────
-BATCH_SIZE=16
+# ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
+BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=2
-EVAL_BATCH_SIZE=32
+GRAD_ACC=1
+EVAL_BATCH_SIZE=64
 MAX_LENGTH=1024
 SEED=10
+EPOCHS=1
+KD_R=0.75
 
 # ───── SFKL ─────
 SKEW_ALPHA=0.1
 
-# ───── NNM (H200 + teacher nhỏ — full config) ─────
+# ───── NNM (H200 thoải mái — full config) ─────
 NNM_RATIO=0.1
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/sa${SKEW_ALPHA}_nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_bs${BATCH_SIZE}_lr${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
@@ -68,8 +70,8 @@ OPTS+=" --warmup-iters 0"
 OPTS+=" --lr-decay-style cosine"
 OPTS+=" --weight-decay 1e-2"
 OPTS+=" --clip-grad 1.0"
-OPTS+=" --epochs 2"
-OPTS+=" --kd-ratio 1.0"
+OPTS+=" --epochs ${EPOCHS}"
+OPTS+=" --kd-ratio ${KD_R}"
 # length
 OPTS+=" --max-length ${MAX_LENGTH}"
 OPTS+=" --max-prompt-length 512"
@@ -114,15 +116,15 @@ OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
 OPTS+=" --nnm-eta 0.05"
 OPTS+=" --nnm-T-dead 50"
 OPTS+=" --nnm-ns-iters 5"
-# warmup: skip NNM in the first 200 steps (let LM/KD stabilize), then ramp
-# nnm_ratio from 0 → target over the next 100 steps.
 OPTS+=" --nnm-warmup-steps 200"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-r 32"
 OPTS+=" --peft-lora-alpha 128"
 OPTS+=" --peft-lora-dropout 0.05"
+
+OPTS+=" --delta-threshold 0.05"
 
 
 export NCCL_DEBUG=""
