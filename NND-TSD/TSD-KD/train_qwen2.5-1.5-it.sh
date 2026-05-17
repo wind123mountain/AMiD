@@ -35,7 +35,7 @@ CUDA_VISIBLE_DEVICES=0,1 accelerate launch --config_file accelerate_ddp_config.y
     --lr 1e-4 \
     --batch-size 8 \
     --eval-batch-size 32 \
-    --gradient-accumulation-steps 4 \
+    --grad-acc 4 \
     --epochs 2 \
     $lora_flag \
     $nnm_flag \
