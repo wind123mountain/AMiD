@@ -667,11 +667,21 @@ def prepare_nnm(args, tokenizer, raw_student, teacher_model, dataset, device):
     """
     Run BEFORE deepspeed.initialize. Returns a dict carrying all NNM state.
 
+    Multi-GPU strategy (rank-0-only pre-pass + broadcast):
+      - Every rank picks the same s_mid/t_mid (deterministic).
+      - Every rank attaches identical projectors (seeded init), since they
+        must exist in the model BEFORE deepspeed.initialize wraps it.
+      - Only rank 0 runs the teacher centroid pre-pass; the centroids and R
+        are then broadcast to all other ranks via torch.distributed.
+      - We assume `dist` is already initialized by the time this is called
+        (i.e. after `initialize(args)` in main()).
+
     Steps:
       1) probe d_s, d_t and choose layer mappings
       2) attach projectors to the raw student so they get wrapped by DeepSpeed
-      3) run teacher centroid pre-pass on a plain dataloader (no DeepSpeed)
-      4) build random projection R and per-layer weights
+      3) (rank 0) build teacher centroids + R; (other ranks) wait
+      4) broadcast centroids + R to all ranks
+      5) build per-layer weights
     """
     # ── 1. shapes & layer selection ────────────────────────────
     s_cfg = raw_student.config
@@ -691,48 +701,89 @@ def prepare_nnm(args, tokenizer, raw_student, teacher_model, dataset, device):
     print_rank(f"[NNM] teacher layers ({n_t_layers}): selected {t_mid}")
 
     # ── 2. attach projectors (BEFORE deepspeed wraps the model) ─
+    # Same seed across ranks → identical projector init → no DDP all-reduce
+    # surprises later. Use a dedicated seed offset so we don't collide with
+    # whatever args.seed is doing elsewhere.
     proj_dtype = next(raw_student.parameters()).dtype
-    attach_nnm_projectors(raw_student, n_s_layers, d_s, d_t, s_mid,
-                          device=device, dtype=proj_dtype)
+    g = torch.Generator(device="cpu").manual_seed(args.seed + 1)
+    projectors = nn.ModuleList([nn.Linear(d_s, d_t, bias=False) for _ in s_mid])
+    with torch.no_grad():
+        for p in projectors:
+            p.weight.copy_(torch.randn(d_t, d_s, generator=g) * 0.02)
+    projectors = projectors.to(device=device, dtype=proj_dtype)
+    raw_student.projectors = projectors
+    print_rank(f"[NNM] attached {len(projectors)} projectors "
+               f"({d_s} -> {d_t}) to student")
 
-    # ── 3. build teacher centroids on a plain dataloader ───────
-    sampler = DistributedSampler(dataset["train"], shuffle=True, drop_last=True,
-                                 rank=dist.get_rank(),
-                                 num_replicas=dist.get_world_size())
-    loader = DataLoader(dataset["train"], sampler=sampler,
-                        batch_size=args.batch_size,
-                        num_workers=args.num_workers,
-                        collate_fn=dataset["train"].collate)
+    # ── 3. rank-0 builds centroids + R; other ranks prepare empty tensors ──
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world = dist.get_world_size() if dist.is_initialized() else 1
 
-    # The collator returns (model_batch, no_model_batch, gen_data). We need a
-    # plain dict with input_ids / attention_mask / labels for the centroid
-    # routine, so wrap with a tiny generator.
-    def _flatten_batches(it):
-        for model_batch, no_model_batch, _gen in it:
-            yield {
-                "input_ids":      model_batch["input_ids"],
-                "attention_mask": model_batch.get("attention_mask",
-                                                  torch.ones_like(model_batch["input_ids"])),
-                "labels":         no_model_batch["label"],
-            }
+    # Allocate placeholder centroid tensors on EVERY rank — rank 0 fills with
+    # real values, others receive via broadcast. Same shape on all ranks so
+    # broadcast just works.
+    t_centroids = {
+        s_lid: torch.zeros(args.nnm_K, d_t, device=device, dtype=torch.float32)
+        for s_lid in s_mid
+    }
+    R = torch.zeros(d_t, args.nnm_d_prime, device=device, dtype=torch.float32)
 
-    teacher_device = next(teacher_model.parameters()).device
-    t_centroids = build_teacher_centroids(
-        teacher=teacher_model,
-        dataloader=_flatten_batches(loader),
-        student_layer_mapping=s_mid,
-        teacher_layer_mapping=t_mid,
-        K=args.nnm_K,
-        eta=args.nnm_eta,
-        T_dead=args.nnm_T_dead,
-        max_batches=args.nnm_centroid_batches,
-        device=teacher_device,
-    )
-    # Move centroids to the student device (where NNM loss is computed)
-    t_centroids = {k: v.to(device) for k, v in t_centroids.items()}
+    if rank == 0:
+        # Plain loader — NO DistributedSampler, since only this rank reads.
+        # drop_last=True keeps shapes uniform for the centroid update.
+        loader = DataLoader(dataset["train"], shuffle=True, drop_last=True,
+                            batch_size=args.batch_size,
+                            num_workers=args.num_workers,
+                            collate_fn=dataset["train"].collate)
 
-    # ── 4. random projection R and layer weights ───────────────
-    R = make_R(d_t, args.nnm_d_prime, device=device, seed=args.seed)
+        # The collator returns (model_batch, no_model_batch, gen_data). We
+        # need a plain dict with input_ids / attention_mask / labels for the
+        # centroid routine, so wrap with a tiny generator.
+        def _flatten_batches(it):
+            for model_batch, no_model_batch, _gen in it:
+                yield {
+                    "input_ids":      model_batch["input_ids"],
+                    "attention_mask": model_batch.get(
+                        "attention_mask",
+                        torch.ones_like(model_batch["input_ids"]),
+                    ),
+                    "labels":         no_model_batch["label"],
+                }
+
+        teacher_device = next(teacher_model.parameters()).device
+        rank0_centroids = build_teacher_centroids(
+            teacher=teacher_model,
+            dataloader=_flatten_batches(loader),
+            student_layer_mapping=s_mid,
+            teacher_layer_mapping=t_mid,
+            K=args.nnm_K,
+            eta=args.nnm_eta,
+            T_dead=args.nnm_T_dead,
+            max_batches=args.nnm_centroid_batches,
+            device=teacher_device,
+        )
+        # Fill the pre-allocated tensors (in-place keeps the same storage so
+        # broadcast hits the right buffer).
+        for s_lid in s_mid:
+            t_centroids[s_lid].copy_(rank0_centroids[s_lid].to(device).float())
+
+        # Build R on rank 0 (deterministic, but we still broadcast to be safe)
+        rank0_R = make_R(d_t, args.nnm_d_prime, device=device, seed=args.seed)
+        R.copy_(rank0_R.float())
+        print_rank(f"[NNM] rank 0 finished centroid pre-pass")
+
+    # ── 4. broadcast centroids + R from rank 0 to all ranks ────
+    if world > 1:
+        for s_lid in s_mid:
+            dist.broadcast(t_centroids[s_lid], src=0)
+        dist.broadcast(R, src=0)
+        dist.barrier()
+        print_rank(f"[NNM] broadcast complete across {world} ranks")
+
+    # Cast back to the dtype actually used by NNM loss internals (float32).
+    # `t_centroids` is already float32. `R` too. Done.
+
+    # ── 5. layer weights ───────────────────────────────────────
     layer_weights = {
         s_lid: layer_weight(s_lid, n_s_layers) for s_lid in s_mid
     }
@@ -748,7 +799,6 @@ def prepare_nnm(args, tokenizer, raw_student, teacher_model, dataset, device):
         "d_s":           d_s,
         "d_t":           d_t,
     }
-
 
 def main():
     torch.backends.cudnn.enabled = False
