@@ -221,7 +221,7 @@ def prepare_nnm(args, student, teacher, train_dataset, tokenizer, device):
     with torch.no_grad():
         for p in projectors:
             p.weight.copy_(torch.randn(d_t, d_s, generator=g) * 0.02)
-    projectors = projectors.to(device=device, dtype=proj_dtype)
+    projectors = projectors.to(dtype=proj_dtype)
     student.projectors = projectors
     _print0(f"[NNM] attached {len(projectors)} projectors "
             f"({d_s} -> {d_t}) to student")
@@ -315,12 +315,11 @@ def prepare_nnm(args, student, teacher, train_dataset, tokenizer, device):
 
 def main():
     args = parse_args()
-    # With `accelerate launch`, each process already has CUDA_VISIBLE_DEVICES
-    # set so it only sees ONE GPU at index 0. Using LOCAL_RANK as the device
-    # index would give "invalid device ordinal" on multi-GPU runs.
+    
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     if torch.cuda.is_available():
-        device = torch.device("cuda")
-        torch.cuda.set_device(0)
+        device = torch.device(f"cuda:{local_rank}")
+        torch.cuda.set_device(local_rank)
     else:
         device = torch.device("cpu")
 
@@ -380,8 +379,6 @@ def main():
     # ═══════════════════════════════════════════════════════════════
     nnm_state = None
     if args.nnm:
-        student = student.to(device)
-        # NOTE: teacher.to(device) is done INSIDE prepare_nnm, rank-0 only.
         nnm_state = prepare_nnm(args, student, teacher,
                                 train_dataset, tokenizer, device)
 
