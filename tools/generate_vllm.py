@@ -32,7 +32,7 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         dtype="bfloat16",
         tensor_parallel_size=1,
         gpu_memory_utilization=0.85,
-        seed=42, max_model_len=4096
+        seed=42
     )
 
     sampling_params = SamplingParams(
@@ -43,7 +43,17 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
     )
 
     print(f"[GPU {gpu_id}] ⚙️ Đang generate...")
-    outputs = llm.generate(prompts_chunk, sampling_params)
+    # outputs = llm.generate(prompts_chunk, sampling_params)
+
+    chunk_size = 5000  
+    outputs = []
+
+    for i in range(0, len(prompts_chunk), chunk_size):
+        chunk = prompts_chunk[i : i + chunk_size]
+        print(f"\n🚀 Đang xử lý từ {i} đến {i + len(chunk)}...")
+        
+        outputs = llm.generate(chunk, sampling_params)
+        outputs.extend(outputs)
 
     with open(temp_out_path, 'w', encoding='utf-8') as f:
         for i, output in enumerate(outputs):
