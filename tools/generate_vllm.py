@@ -32,7 +32,7 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         dtype="bfloat16",
         tensor_parallel_size=1,
         gpu_memory_utilization=0.85,
-        seed=42, max_num_seqs=64,
+        seed=42
     )
 
     sampling_params = SamplingParams(
@@ -42,8 +42,20 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         skip_special_tokens=True
     )
 
+    print(f"[GPU {gpu_id}] 🔤 Tokenizing...")
+    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    from vllm import TokensPrompt
+
+    token_ids = tokenizer(
+        prompts_chunk, 
+        return_tensors=None,
+        add_special_tokens=False
+    )["input_ids"]
+
+    token_prompts = [TokensPrompt(prompt_token_ids=ids) for ids in token_ids]
+
     print(f"[GPU {gpu_id}] ⚙️ Đang generate...")
-    outputs = llm.generate(prompts_chunk, sampling_params)
+    outputs = llm.generate(token_prompts, sampling_params)
 
     with open(temp_out_path, 'w', encoding='utf-8') as f:
         for i, output in enumerate(outputs):
