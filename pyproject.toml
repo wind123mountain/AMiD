@@ -25,7 +25,8 @@ dependencies = [
     "lm-eval[math]",
     "langdetect",
     "immutabledict",
-    "celery"
+    "celery",
+    "matplotlib"
 ]
 
 [tool.uv]
