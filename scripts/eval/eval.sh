@@ -3,7 +3,7 @@
 hf download VoCuc/AMiD --include "qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4/7476/*" \
         --local-dir "results"
 
-TP=4
+TP=2
 
 LOG_DIR="outputs/eval_results/logs"
 OUT_DIR="outputs/eval_results/vllm"
@@ -112,9 +112,9 @@ run_eval() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen3-1.7B-it-nnm" \
-    "pretrained=results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.3,trust_remote_code=True"
+CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.3,trust_remote_code=True"
 
 
 
@@ -140,6 +140,6 @@ python tools/merge_model.py \
   --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch2_lr1e-4_kdr1.0
 
 python tools/merge_model.py \
-  --base_model Qwen/Qwen3-1.7B \
-  --adapter results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75/4984 \
-  --output results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0/4984 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0
