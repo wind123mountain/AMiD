@@ -24,12 +24,12 @@ TEACHER_CKPT="Qwen/Qwen3-8B"
 # data
 DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen3-8B/"
 # hp
-BATCH_SIZE=4
+BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=2
+GRAD_ACC=1
 EVAL_BATCH_SIZE=16
 # length
-MAX_LENGTH=1024
+MAX_LENGTH=1025
 # seed
 SEED=10
 
