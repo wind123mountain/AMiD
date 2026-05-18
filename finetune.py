@@ -65,7 +65,7 @@ def get_teacher_model(args, device):
     else:
         config.is_model_parallel = False
         try:
-            model = AutoModelForCausalLM.from_pretrained(args.teacher_model_path, config=config, device_map={"": device}, torch_dtype=torch.float16)
+            model = AutoModelForCausalLM.from_pretrained(args.teacher_model_path, config=config, device_map={"": device}, torch_dtype=torch.bfloat16)
         except:
             model = AutoModelForCausalLM.from_pretrained(args.teacher_model_path, config=config, device_map={"": device}, torch_dtype=torch.float32)
             model = model.half()
@@ -174,11 +174,7 @@ def pt_loss(args, model, model_batch, no_model_batch):
     return lm_loss
 
 
-def get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model_batch, logits, epoch):
-    with torch.no_grad():
-        teacher_model.eval()
-        teacher_outputs = teacher_model(**model_batch, use_cache=False)
-        teacher_logits = teacher_outputs.logits
+def get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch):
     if args.model_parallel:
         raise NotImplementedError
     else:
@@ -330,6 +326,19 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
     prev_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
     replay_buffer = ReplayBuffer(args)
 
+    student_captured_hidden = []
+    hook_handles = []
+    def capture_hook_fn(module, input, output):
+        if module.training: 
+            if isinstance(output, tuple):
+                student_captured_hidden.append(output[0])
+            else:
+                student_captured_hidden.append(output)
+
+    for layer in model.base_model.model.model.layers:
+        h_layer = layer.register_forward_hook(capture_hook_fn)
+        hook_handles.append(h_layer)
+
     total_res = []
 
     # ═══ NNM: master switch (config-level) ═══
@@ -346,7 +355,9 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
         model.train()
         for it, (model_batch, no_model_batch, gen_data) in enumerate(train_dataloader):
             dataset["train"].move_to_device(model_batch, no_model_batch, gen_data, device)
-
+            student_captured_hidden.clear()
+            student_captured_hidden.append(None)
+            
             if args.lm_data_dir is not None:
                 try:
                     pt_model_batch, pt_no_model_batch, pt_gen_data = next(pt_train_iter)
@@ -407,12 +418,9 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             use_nnm = nnm_eff_ratio > 0.0
 
             # ═══ NNM: turn on hidden states if needed ═══
-            if use_nnm:
-                outputs = model(**model_batch, output_hidden_states=True, use_cache=False)
-                s_hidden = outputs.hidden_states
-            else:
-                outputs = model(**model_batch, use_cache=False)
-                s_hidden = None
+            outputs = model(**model_batch, output_hidden_states=True, use_cache=False)
+            s_hidden = student_captured_hidden
+            
 
             logits = outputs.logits
             if args.model_parallel:
@@ -421,7 +429,11 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 lm_loss = loss_func(logits.float().view(-1, logits.shape[-1]), no_model_batch["label"].view(-1))
 
             if teacher_model is not None:
-                distil_loss = get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model_batch, logits, epoch)
+                with torch.no_grad():
+                    teacher_model.eval()
+                    teacher_outputs = teacher_model(**model_batch, output_hidden_states=True, use_cache=False)
+                    teacher_logits = teacher_outputs.logits
+                distil_loss = get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch)
                 loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * distil_loss
             else:
                 loss = lm_loss
@@ -431,13 +443,7 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             # ═══════════════════════════════════════════════════════════════
             nnm_loss = torch.tensor(0.0, device=device)
             if use_nnm:
-                # Teacher forward (output_hidden_states)
-                with torch.no_grad():
-                    teacher_model.eval()
-                    t_out = teacher_model(**model_batch,
-                                          output_hidden_states=True,
-                                          use_cache=False)
-                    t_hidden = t_out.hidden_states
+                t_hidden = teacher_outputs.hidden_states
 
                 student_unwrapped = get_unwrapped_student(model)
                 nnm_loss = compute_nnm_loss(

@@ -37,12 +37,24 @@ from utils import load_parallel, save_parallel
 from utils import get_tokenizer, get_model
 
 from distillm import forward_kl, reverse_kl, js_distance, tv_distance, ab_div, AKL, alphanet, bdkd
-from distillm import skewed_forward_kl, skewed_reverse_kl, csd
+from distillm import skewed_forward_kl, skewed_reverse_kl
 from distillm import SampleGenerator, ReplayBuffer
 
 from rouge_metric import compute_metrics
 
 from peft import PeftModel
+
+# ═══════════════════════════════════════════════════════════════
+#  NNM import — utility funcs from nnm_module, loss from nnm_variants
+#  (nnm_variants dispatches to nnm / bnm / bnmm / erank).
+# ═══════════════════════════════════════════════════════════════
+from nnm_module import (
+    make_R,
+    layer_weight,
+    select_mid_layers,
+    build_teacher_centroids,
+)
+from nnm_variants import compute_variant_loss
 
 torch.set_num_threads(4)
 
@@ -77,7 +89,6 @@ def get_teacher_model(args, device):
 def get_optimizer(args, model):
     """Set up the optimizer."""
 
-    # Build parameter groups (weight decay and non-decay).
     while isinstance(model, DDP):
         model = model.module
 
@@ -86,7 +97,16 @@ def get_optimizer(args, model):
     else:
         param_groups = get_optimizer_params(args, model)
 
-    # Use AdamW.
+    if getattr(args, "nnm", False) and hasattr(model, "projectors"):
+        proj_params = [p for p in model.projectors.parameters() if p.requires_grad]
+        if len(proj_params) > 0:
+            param_groups.append({
+                "params": proj_params,
+                "weight_decay": args.weight_decay,
+                "lr": args.lr,
+            })
+            print_rank(f"[NNM] Added {sum(p.numel() for p in proj_params)} projector params to optimizer")
+
     optimizer = AdamW(param_groups, lr=args.lr, weight_decay=args.weight_decay)
     print_rank(f'Optimizer = {optimizer.__class__.__name__}')
     return optimizer
@@ -108,7 +128,6 @@ def get_learning_rate_scheduler(args, optimizer):
 
 
 def setup_model_and_optimizer(args, model, ds_config, device, set_optim=True):
-    # get the optimizer and lr_scheduler
     if set_optim:
         optimizer = get_optimizer(args, model)
         lr_scheduler = get_learning_rate_scheduler(args, optimizer)
@@ -117,7 +136,6 @@ def setup_model_and_optimizer(args, model, ds_config, device, set_optim=True):
 
     model, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, optimizer=optimizer, args=args, lr_scheduler=lr_scheduler, mpu=None, config_params=ds_config)
 
-    # get the memory usage
     print_rank("Model mem\n", torch.cuda.memory_summary())
     return model, optimizer, lr_scheduler
 
@@ -134,7 +152,6 @@ def prepare_dataset(args, tokenizer):
     else:
         raise ValueError("Do train and do eval must set one")
 
-    # pre-trained dataset
     if args.do_train and args.lm_data_dir is not None:
         data["pt_train"] = LMTrainDataset(args, tokenizer, args.lm_data_dir, "train", args.train_num, args.train_ratio, rng_sample)
         print_rank("train num", len(data["pt_train"]))
@@ -150,11 +167,7 @@ def pt_loss(args, model, model_batch, no_model_batch):
     return lm_loss
 
 
-def get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model_batch, logits, epoch):
-    with torch.no_grad():
-        teacher_model.eval()
-        teacher_outputs = teacher_model(**model_batch, use_cache=False)
-        teacher_logits = teacher_outputs.logits
+def get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch):
     if args.model_parallel:
         raise NotImplementedError
     else:
@@ -181,8 +194,6 @@ def get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model
         elif "amid" in args.type:
             from distillm import amid
             distil_loss = amid(logits, teacher_logits, no_model_batch, args, epoch=epoch)
-        elif "csd" in args.type:
-            distil_loss = csd(logits, teacher_logits, no_model_batch)
         else:
             raise ValueError(f"Distillation type {args.type} is not supported yet.")
     return distil_loss
@@ -218,10 +229,45 @@ def get_teacher_lm_loss(args, tokenizer, model, teacher_model, model_batch):
     return lm_loss
 
 
-def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, optimizer: AdamW, lr_scheduler, dataset, device, teacher_model=None):
+def attach_nnm_projectors(student_model, n_student_layers, d_s, d_t, s_mid, device, dtype):
+    projectors = nn.ModuleList([
+        nn.Linear(d_s, d_t, bias=False) for _ in s_mid
+    ])
+    for p in projectors:
+        nn.init.normal_(p.weight, std=0.02)
+    projectors = projectors.to(device=device, dtype=dtype)
+    student_model.projectors = projectors
+    print_rank(f"[NNM] Attached {len(projectors)} projectors "
+               f"({d_s} -> {d_t}) to student model")
+    return projectors
+
+
+def get_unwrapped_student(model):
+    m = model
+    while hasattr(m, "module"):
+        m = m.module
+    return m
+
+
+def _nnm_effective_ratio(global_step, args):
+    warmup = getattr(args, "nnm_warmup_steps", 0)
+    ramp   = getattr(args, "nnm_ramp_steps", 0)
+    target = args.nnm_ratio
+
+    if global_step < warmup:
+        return 0.0
+    if ramp <= 0:
+        return target
+    progress = (global_step - warmup) / ramp
+    if progress >= 1.0:
+        return target
+    return target * progress
+
+
+def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, optimizer: AdamW, lr_scheduler, dataset, device, teacher_model=None,
+             nnm_state=None):
     print_rank("Start Fine-tuning")
 
-    # print_inspect(model, '*')
     if args.model_parallel:
         raise NotImplementedError
     else:
@@ -241,14 +287,34 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
     student_generator = SampleGenerator(args, tokenizer)
 
     step, global_step = 1, 1
-    total_loss, total_distil_loss, total_time = 0.0, 0.0, 0.0
+    total_loss, total_distil_loss, total_nnm_loss, total_time = 0.0, 0.0, 0.0, 0.0
 
     adaptive_threshold = args.init_threshold if "adaptive" in args.type else None
-    # prev_avg_loss, _ = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
     prev_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
     replay_buffer = ReplayBuffer(args)
 
+    student_captured_hidden = []
+    hook_handles = []
+    def capture_hook_fn(module, input, output):
+        if module.training: 
+            if isinstance(output, tuple):
+                student_captured_hidden.append(output[0])
+            else:
+                student_captured_hidden.append(output)
+
+    for layer in model.base_model.model.model.layers:
+        h_layer = layer.register_forward_hook(capture_hook_fn)
+        hook_handles.append(h_layer)
+
     total_res = []
+
+    nnm_enabled = (nnm_state is not None) and (args.nnm_ratio > 0)
+    if nnm_enabled:
+        warmup_s = getattr(args, "nnm_warmup_steps", 0)
+        ramp_s   = getattr(args, "nnm_ramp_steps", 0)
+        variant  = getattr(args, "loss_variant", "nnm")
+        print_rank(f"[NNM] variant={variant}, schedule: warmup={warmup_s} steps, "
+                   f"ramp={ramp_s} steps, target_ratio={args.nnm_ratio}")
 
     for epoch in range(args.epochs):
         sampler.set_epoch(epoch)
@@ -256,14 +322,14 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
         model.train()
         for it, (model_batch, no_model_batch, gen_data) in enumerate(train_dataloader):
             dataset["train"].move_to_device(model_batch, no_model_batch, gen_data, device)
-
+            student_captured_hidden.clear()
+            student_captured_hidden.append(None)
+            
             if args.lm_data_dir is not None:
                 try:
                     pt_model_batch, pt_no_model_batch, pt_gen_data = next(pt_train_iter)
-                    # pt_model_batch, pt_no_model_batch, pt_gen_data = pt_train_iter.next()
                 except:
                     pt_train_iter = iter(pt_train_dataloader)
-                    # pt_model_batch, pt_no_model_batch, pt_gen_data = pt_train_iter.next()
                     pt_model_batch, pt_no_model_batch, pt_gen_data = next(pt_train_iter)
 
                 dataset["pt_train"].move_to_device(pt_model_batch, pt_no_model_batch, pt_gen_data, device)
@@ -271,7 +337,6 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             torch.cuda.synchronize()
             st_time = time.time()
             if args.teacher_model_path is not None:
-                # # sampling ratio:
                 if "adaptive" in args.type:
                     samp_threshold = adaptive_threshold * (1 - global_step / args.total_iters)
                 if "adaptive" in args.type:
@@ -282,7 +347,6 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                     else:
                         samp_threshold = adaptive_threshold * (1 - global_step / args.total_iters)
 
-                # data generation
                 if args.student_gen:
                     r = np.random.uniform(0, 1)
                     if "mixed" in args.type and r < args.mixed_alpha:
@@ -309,7 +373,15 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
 
                     model.train()
 
-            outputs = model(**model_batch, use_cache=False)
+            if nnm_enabled:
+                nnm_eff_ratio = _nnm_effective_ratio(global_step, args)
+            else:
+                nnm_eff_ratio = 0.0
+            use_nnm = nnm_eff_ratio > 0.0
+
+            outputs = model(**model_batch, output_hidden_states=True, use_cache=False)
+            s_hidden = student_captured_hidden
+            
 
             logits = outputs.logits
             if args.model_parallel:
@@ -318,10 +390,42 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 lm_loss = loss_func(logits.float().view(-1, logits.shape[-1]), no_model_batch["label"].view(-1))
 
             if teacher_model is not None:
-                distil_loss = get_distil_loss(args, tokenizer, model, teacher_model, model_batch, no_model_batch, logits, epoch)
+                with torch.no_grad():
+                    teacher_model.eval()
+                    teacher_outputs = teacher_model(**model_batch, output_hidden_states=True, use_cache=False)
+                    teacher_logits = teacher_outputs.logits
+                distil_loss = get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch)
                 loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * distil_loss
             else:
                 loss = lm_loss
+
+            # ═══════════════════════════════════════════════════════════════
+            #  Structural regularizer loss (variant selectable)
+            # ═══════════════════════════════════════════════════════════════
+            nnm_loss = torch.tensor(0.0, device=device)
+            if use_nnm:
+                with torch.no_grad():
+                    teacher_model.eval()
+                    t_out = teacher_model(**model_batch,
+                                          output_hidden_states=True,
+                                          use_cache=False)
+                    t_hidden = t_out.hidden_states
+
+                student_unwrapped = get_unwrapped_student(model)
+                nnm_loss = compute_variant_loss(
+                    variant=getattr(args, "loss_variant", "nnm"),
+                    projectors=student_unwrapped.projectors,
+                    s_hidden_states=s_hidden,
+                    t_hidden_states=t_hidden,
+                    labels=no_model_batch["label"],
+                    student_layer_mapping=nnm_state["s_mid"],
+                    teacher_layer_mapping=nnm_state["t_mid"],
+                    t_centroids=nnm_state["t_centroids"],
+                    R=nnm_state["R"],
+                    layer_weights=nnm_state["layer_weights"],
+                    ns_iters=args.nnm_ns_iters,
+                )
+                loss = loss + nnm_eff_ratio * nnm_loss
 
             if args.lm_data_dir is not None:
                 assert args.lm_coef is not None
@@ -339,15 +443,22 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 global_distil_loss = distil_loss.item() / dp_world_size
                 total_distil_loss += global_distil_loss
 
+            global_nnm_loss = 0.0
+            if use_nnm:
+                dist.all_reduce(nnm_loss, dist.ReduceOp.SUM, group=dp_group)
+                global_nnm_loss = nnm_loss.item() / dp_world_size
+                total_nnm_loss += global_nnm_loss
+
             torch.cuda.synchronize()
             elapsed_time = time.time() - st_time
 
             total_loss += global_loss
             total_time += elapsed_time
 
-            # Logging
-            def get_log(log_loss, log_distil_loss, log_time):
-                return "train | epoch {:3d} | Iter: {:6d}/{:6d} | global iter: {:6d}/{:6d} | loss: {:.4f} | ds_loss: {:.4f} | lr: {:.4e} | scale: {:10.4f} | micro time: {:.3f} | step time: {:.3f}".format(
+            def get_log(log_loss, log_distil_loss, log_nnm_loss, log_time):
+                return ("train | epoch {:3d} | Iter: {:6d}/{:6d} | global iter: {:6d}/{:6d} | "
+                        "loss: {:.4f} | ds_loss: {:.4f} | nnm_loss: {:.4f} | lr: {:.4e} | "
+                        "scale: {:10.4f} | micro time: {:.3f} | step time: {:.3f}").format(
                     epoch,
                     step,
                     args.total_iters * args.gradient_accumulation_steps,
@@ -355,6 +466,7 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                     args.total_iters,
                     log_loss,
                     log_distil_loss,
+                    log_nnm_loss,
                     lr_scheduler.get_last_lr()[0],
                     optimizer.cur_scale if hasattr(optimizer, "cur_scale") else 0,
                     elapsed_time,
@@ -365,18 +477,23 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                 mid_log_step = args.gradient_accumulation_steps // args.mid_log_num
                 mid_log_step = 1 if mid_log_step == 0 else mid_log_step
                 if step % mid_log_step == 0:
-                    print_rank(get_log(global_loss, global_distil_loss, 0))
+                    print_rank(get_log(global_loss, global_distil_loss, global_nnm_loss, 0))
 
             if global_step % args.log_interval == 0 and step % args.gradient_accumulation_steps == 0:
-                log_str = get_log(total_loss / (args.log_interval * args.gradient_accumulation_steps), total_distil_loss / (args.log_interval * args.gradient_accumulation_steps), total_time / (args.log_interval))
+                denom = args.log_interval * args.gradient_accumulation_steps
+                log_str = get_log(
+                    total_loss / denom,
+                    total_distil_loss / denom,
+                    total_nnm_loss / denom,
+                    total_time / args.log_interval,
+                )
                 print_rank("*" * 100)
                 print_rank(log_str)
                 print_rank(args.save)
                 print_rank("*" * 100)
                 save_rank(log_str, os.path.join(args.save, "log.txt"))
-                total_loss, total_distil_loss, total_time = 0.0, 0.0, 0.0
+                total_loss, total_distil_loss, total_nnm_loss, total_time = 0.0, 0.0, 0.0, 0.0
 
-            # Checkpointing
             if args.save and args.save_interval and global_step % args.save_interval == 0 and step % args.gradient_accumulation_steps == 0:
                 save_dir_path = os.path.join(args.save, str(global_step))
                 if args.model_parallel:
@@ -389,16 +506,13 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
                         model.module.save_pretrained(save_dir_path, safe_serialization=False)
                 dist.barrier()
 
-            # Evaluation
             if args.eval_interval and global_step % args.eval_interval == 0 and step % args.gradient_accumulation_steps == 0:
-                # curr_avg_loss, cur_res = evaluate(args, tokenizer, model, dataset["dev"], "dev", epoch, device, adaptive_threshold)
                 curr_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", epoch, device, adaptive_threshold)
                 if "adaptive" in args.type:
                     if curr_avg_loss >= prev_avg_loss + args.loss_eps:
-                        adaptive_threshold += 0.1
+                        adaptive_threshold += args.delta_threshold
                         adaptive_threshold = min(adaptive_threshold, 1.0)
                         prev_avg_loss = curr_avg_loss
-                # total_res.append([step]+cur_res)
                 model.train()
 
             step += 1
@@ -407,12 +521,6 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
 
             if global_step > args.total_iters:
                 break
-
-    ##### Save #####
-    # total_res = np.array(total_res)
-    # best_res = total_res[np.argmax(total_res[:, -1])]
-    # save_rank(f"best | step: {best_res[0]}, avg_loss: {best_res[1]}, exact_match: {best_res[2]}, rougeL: {best_res[3]}", os.path.join(args.save, "log.txt"))
-    # np.save(f"{args.save}/total_res#best_{best_res[0]}_{best_res[-1]:.2f}.npy", np.array(total_res))
 
     return model
 
@@ -512,8 +620,102 @@ def evaluate(args, tokenizer, model, dataset: LMTrainDataset, split, epoch, devi
         print_rank(log_str)
         save_rank(log_str, os.path.join(args.save, "log.txt"))
 
-    return all_loss / step # , [avg_loss, res["exact_match"], res["rougeL"]]
+    return all_loss / step
 
+
+def prepare_nnm(args, tokenizer, raw_student, teacher_model, dataset, device):
+    s_cfg = raw_student.config
+    t_cfg = teacher_model.config
+
+    d_s = s_cfg.hidden_size
+    d_t = t_cfg.hidden_size
+
+    n_s_layers = s_cfg.num_hidden_layers
+    n_t_layers = t_cfg.num_hidden_layers
+
+    s_mid = select_mid_layers(n_s_layers, args.nnm_n_layers)
+    t_mid = select_mid_layers(n_t_layers, args.nnm_n_layers)
+    print_rank(f"[NNM] student layers ({n_s_layers}): selected {s_mid}")
+    print_rank(f"[NNM] teacher layers ({n_t_layers}): selected {t_mid}")
+
+    proj_dtype = next(raw_student.parameters()).dtype
+    g = torch.Generator(device="cpu").manual_seed(args.seed + 1)
+    projectors = nn.ModuleList([nn.Linear(d_s, d_t, bias=False) for _ in s_mid])
+    with torch.no_grad():
+        for p in projectors:
+            p.weight.copy_(torch.randn(d_t, d_s, generator=g) * 0.02)
+    projectors = projectors.to(device=device, dtype=proj_dtype)
+    raw_student.projectors = projectors
+    print_rank(f"[NNM] attached {len(projectors)} projectors "
+               f"({d_s} -> {d_t}) to student")
+
+    rank = dist.get_rank() if dist.is_initialized() else 0
+    world = dist.get_world_size() if dist.is_initialized() else 1
+
+    t_centroids = {
+        s_lid: torch.zeros(args.nnm_K, d_t, device=device, dtype=torch.float32)
+        for s_lid in s_mid
+    }
+    R = torch.zeros(d_t, args.nnm_d_prime, device=device, dtype=torch.float32)
+
+    if rank == 0:
+        loader = DataLoader(dataset["train"], shuffle=True, drop_last=True,
+                            batch_size=args.batch_size,
+                            num_workers=args.num_workers,
+                            collate_fn=dataset["train"].collate)
+
+        def _flatten_batches(it):
+            for model_batch, no_model_batch, _gen in it:
+                yield {
+                    "input_ids":      model_batch["input_ids"],
+                    "attention_mask": model_batch.get(
+                        "attention_mask",
+                        torch.ones_like(model_batch["input_ids"]),
+                    ),
+                    "labels":         no_model_batch["label"],
+                }
+
+        teacher_device = next(teacher_model.parameters()).device
+        rank0_centroids = build_teacher_centroids(
+            teacher=teacher_model,
+            dataloader=_flatten_batches(loader),
+            student_layer_mapping=s_mid,
+            teacher_layer_mapping=t_mid,
+            K=args.nnm_K,
+            eta=args.nnm_eta,
+            T_dead=args.nnm_T_dead,
+            max_batches=args.nnm_centroid_batches,
+            device=teacher_device,
+        )
+        for s_lid in s_mid:
+            t_centroids[s_lid].copy_(rank0_centroids[s_lid].to(device).float())
+
+        rank0_R = make_R(d_t, args.nnm_d_prime, device=device, seed=args.seed)
+        R.copy_(rank0_R.float())
+        print_rank(f"[NNM] rank 0 finished centroid pre-pass")
+
+    if world > 1:
+        for s_lid in s_mid:
+            dist.broadcast(t_centroids[s_lid], src=0)
+        dist.broadcast(R, src=0)
+        dist.barrier()
+        print_rank(f"[NNM] broadcast complete across {world} ranks")
+
+    layer_weights = {
+        s_lid: layer_weight(s_lid, n_s_layers) for s_lid in s_mid
+    }
+
+    print_rank(f"[NNM] centroids ready: K={args.nnm_K}, d_t={d_t}, "
+               f"d_prime={args.nnm_d_prime}")
+    return {
+        "s_mid":         s_mid,
+        "t_mid":         t_mid,
+        "t_centroids":   t_centroids,
+        "R":             R,
+        "layer_weights": layer_weights,
+        "d_s":           d_s,
+        "d_t":           d_t,
+    }
 
 def main():
     torch.backends.cudnn.enabled = False
@@ -541,12 +743,9 @@ def main():
     if not args.do_train:
         ds_config["zero_optimization"]["stage"] = 0
 
-    ### args.fp32 = not ds_config["fp16"]["enabled"]
     args.fp32 = False
-
     args.deepspeed_config = None
 
-    # get the tokenizer
     tokenizer = get_tokenizer(args)
     dataset = prepare_dataset(args, tokenizer)
 
@@ -578,10 +777,19 @@ def main():
     else:
         teacher_model = None
 
-    
+    nnm_state = None
+    if args.do_train and getattr(args, "nnm", False):
+        if teacher_model is None:
+            raise ValueError("NNM requires --teacher_model_path")
+        nnm_state = prepare_nnm(args, tokenizer, model, teacher_model,
+                                dataset, device)
+
     model, optimizer, lr_scheduler = setup_model_and_optimizer(args, model, ds_config, device, set_optim=args.do_train)
+
     if args.do_train:
-        model = finetune(args, tokenizer, model, optimizer, lr_scheduler, dataset, device, teacher_model=teacher_model)
+        model = finetune(args, tokenizer, model, optimizer, lr_scheduler,
+                         dataset, device, teacher_model=teacher_model,
+                         nnm_state=nnm_state)
 
     if args.do_eval:
         evaluate(args, tokenizer, model, dataset["test"], "test", 0, device)

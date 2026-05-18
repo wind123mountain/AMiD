@@ -1,5 +1,5 @@
 #! /bin/bash
-
+VARIANT="${1:?usage: bash $0 <nnm|bnm|bnmm|erank>}"
 GPUS=(0 1)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
@@ -33,7 +33,7 @@ EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
 EPOCHS=1
-KD_R=0.75
+KD_R=1.0
 
 # ───── SFKL ─────
 SKEW_ALPHA=0.1
@@ -132,7 +132,7 @@ export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune_new.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"

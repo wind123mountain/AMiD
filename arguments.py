@@ -15,6 +15,8 @@
 
 import argparse
 import os
+
+from celery import group
 import deepspeed
 import numpy as np
 
@@ -287,6 +289,15 @@ def add_nnm_args(parser: argparse.ArgumentParser):
     group.add_argument("--nnm-ramp-steps", type=int, default=0,
                        help="After warmup, linearly ramp nnm_ratio from 0 to "
                             "its target over this many steps. 0 = hard step.")
+    group.add_argument(
+        "--loss-variant", type=str, default="nnm",
+        choices=["nnm", "nuno", "bnm", "bnmm", "erank"],
+        help="Which structural loss to use as the regularizer. "
+             "nnm/nuno = centroid-anchored log-squared match (ours); "
+             "bnm = maximize ||H_s||_*; "
+             "bnmm = match raw ||H_s||_* to ||H_t||_*; "
+             "erank = maximize effective rank of H_s.",
+    )
 
     return parser
 

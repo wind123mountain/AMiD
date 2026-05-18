@@ -65,7 +65,7 @@ run_eval() {
         echo "=========================================="
 
         echo ">>> [1/10] GSM8K"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k --num_fewshot 5 --gen_kwargs "max_new_tokens=4096"
 
         # echo ">>> [2/10] MATH (Hendrycks full)"
         # lm_eval "${BASE_ARGS_MATH[@]}" \
@@ -76,31 +76,31 @@ run_eval() {
         echo ">>> [2/10] MATH (Minerva format)"
         lm_eval "${BASE_ARGS[@]}" \
             --tasks minerva_math \
-            --num_fewshot 4 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+            --num_fewshot 4 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [3/10] MMLU-STEM"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [4/10] SciQ"
-        lm_eval "${BASE_ARGS_MATH[@]}" --tasks sciq --num_fewshot 0 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS_MATH[@]}" --tasks sciq --num_fewshot 0 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --num_fewshot 3 --confirm_run_unsafe_code --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --num_fewshot 0 --confirm_run_unsafe_code --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [6/10] GSM-Plus (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus --num_fewshot 5 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus --num_fewshot 5 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [7/10] MMLU-Pro-Math (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math --num_fewshot 5 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math --num_fewshot 5 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [8/10] BBH CoT (3-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks bbh_cot_fewshot --num_fewshot 3 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks bbh_cot_fewshot --num_fewshot 3 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [9/10] MuSR (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0 --gen_kwargs "max_new_tokens=4096"
 
         echo ">>> [10/10] IFEval (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0 --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval --num_fewshot 0 --gen_kwargs "max_new_tokens=4096"
 
 
 
@@ -113,8 +113,8 @@ run_eval() {
 }
 
 CUDA_VISIBLE_DEVICES=4,5,6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen3-1.7B-it-amid" \
-    "pretrained=results/qwen3-1.7B#amid/ab_pr_0.5_0.5_4_1e-4,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.3,trust_remote_code=True"
+    "qwen3-1.7B-it-nnm" \
+    "pretrained=results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.3,trust_remote_code=True"
 
 
 
@@ -126,8 +126,8 @@ echo "=== Done ==="
 
 python tools/merge_model.py \
   --base_model Qwen/Qwen2.5-1.5B-Instruct \
-  --adapter results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4/7476 \
-  --output results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75
 
 python tools/merge_model.py \
   --base_model Qwen/Qwen2.5-1.5B-Instruct \
@@ -141,5 +141,5 @@ python tools/merge_model.py \
 
 python tools/merge_model.py \
   --base_model Qwen/Qwen3-1.7B \
-  --adapter results/qwen3-1.7B#amid/ab_pr_0.5_0.5_4_1e-4/4984 \
-  --output results/qwen3-1.7B#amid/ab_pr_0.5_0.5_4_1e-4
+  --adapter results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75/4984 \
+  --output results/qwen3-1.7B#sfkl_nnm_lora/nnm0.9_K128_L4_epoch2_lr1e-4_kdr0.75
