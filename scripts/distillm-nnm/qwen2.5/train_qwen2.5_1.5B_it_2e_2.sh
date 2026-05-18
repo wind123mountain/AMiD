@@ -116,7 +116,7 @@ OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
 OPTS+=" --nnm-eta 0.05"
 OPTS+=" --nnm-T-dead 50"
 OPTS+=" --nnm-ns-iters 5"
-OPTS+=" --nnm-warmup-steps 200"
+OPTS+=" --nnm-warmup-steps 0"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
