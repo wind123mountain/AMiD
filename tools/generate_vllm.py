@@ -32,7 +32,7 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         dtype="bfloat16",
         tensor_parallel_size=1,
         gpu_memory_utilization=0.85,
-        seed=42
+        seed=42, enforce_eager=True,
     )
 
     sampling_params = SamplingParams(
