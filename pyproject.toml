@@ -24,7 +24,8 @@ dependencies = [
     "vllm==0.15.1",
     "lm-eval[math]",
     "langdetect",
-    "immutabledict"
+    "immutabledict",
+    "celery"
 ]
 
 [tool.uv]
