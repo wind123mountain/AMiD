@@ -25,9 +25,9 @@ TEACHER_CKPT="google/gemma-2-9b-it"
 DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
 
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
-BATCH_SIZE=8
+BATCH_SIZE=4
 LR=1e-4
-GRAD_ACC=1
+GRAD_ACC=2
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
