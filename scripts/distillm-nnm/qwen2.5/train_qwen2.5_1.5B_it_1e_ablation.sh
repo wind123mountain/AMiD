@@ -1,6 +1,6 @@
 #! /bin/bash
 VARIANT="${1:?usage: bash $0 <nnm|bnm|bnmm|erank>}"
-GPUS=(0 1)
+GPUS=(0 1 2 3 4 5 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -28,24 +28,24 @@ DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
 BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=4
+GRAD_ACC=1
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
-EPOCHS=1
+EPOCHS=2
 KD_R=1.0
 
 # ───── SFKL ─────
 SKEW_ALPHA=0.1
 
 # ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.1
+NNM_RATIO=0.2
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/${VARIANT}${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
@@ -116,13 +116,13 @@ OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
 OPTS+=" --nnm-eta 0.05"
 OPTS+=" --nnm-T-dead 50"
 OPTS+=" --nnm-ns-iters 5"
-OPTS+=" --nnm-warmup-steps 200"
+OPTS+=" --nnm-warmup-steps 100"
 OPTS+=" --nnm-ramp-steps 200"
 OPTS+=" --loss-variant ${VARIANT}" 
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
 OPTS+=" --peft-lora-r 32"
-OPTS+=" --peft-lora-alpha 128"
+OPTS+=" --peft-lora-alpha 64"
 OPTS+=" --peft-lora-dropout 0.05"
 
 OPTS+=" --delta-threshold 0.05"

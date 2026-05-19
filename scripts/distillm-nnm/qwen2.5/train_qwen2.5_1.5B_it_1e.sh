@@ -121,7 +121,7 @@ OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
 OPTS+=" --peft-lora-r 32"
-OPTS+=" --peft-lora-alpha 128"
+OPTS+=" --peft-lora-alpha 64"
 OPTS+=" --peft-lora-dropout 0.05"
 
 OPTS+=" --delta-threshold 0.05"

@@ -33,7 +33,7 @@ run_eval() {
         --model_args "${MODEL_ARGS}"
         --batch_size auto
         --apply_chat_template
-        --fewshot_as_multiturn
+        # --fewshot_as_multiturn
         --log_samples
         --output_path "${OUT}"
     )
@@ -112,9 +112,15 @@ run_eval() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0" \
-    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.3,trust_remote_code=True"
+# CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+#     "qwen3-1.7B#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0" \
+#     "pretrained=Qwen/Qwen3-1.7B,lora_local_path=results/qwen3-1.7B#sfkl_nnm_lora/nnm0.5_K128_L4_epoch2_lr1e-4_kdr1.0/4984,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
+
+CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=float16,gpu_memory_utilization=0.8,trust_remote_code=True"
 
 
 
@@ -141,5 +147,5 @@ python tools/merge_model.py \
 
 python tools/merge_model.py \
   --base_model Qwen/Qwen2.5-1.5B-Instruct \
-  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0/4984 \
-  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/4984 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0

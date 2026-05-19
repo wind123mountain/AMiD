@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(2 3)
+GPUS=(0 1 2 3 4 5 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -28,7 +28,7 @@ DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
 BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=2
+GRAD_ACC=1
 EVAL_BATCH_SIZE=64
 MAX_LENGTH=1025
 SEED=10
@@ -116,11 +116,11 @@ OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
 OPTS+=" --nnm-eta 0.05"
 OPTS+=" --nnm-T-dead 50"
 OPTS+=" --nnm-ns-iters 5"
-OPTS+=" --nnm-warmup-steps 0"
+OPTS+=" --nnm-warmup-steps 100"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-r 32"
 OPTS+=" --peft-lora-alpha 64"
 OPTS+=" --peft-lora-dropout 0.05"
 

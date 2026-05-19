@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(2 3)
+GPUS=(0 1)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -39,7 +39,7 @@ KD_R=1.0
 SKEW_ALPHA=0.1
 
 # ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.5
+NNM_RATIO=1.0
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
@@ -116,7 +116,7 @@ OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
 OPTS+=" --nnm-eta 0.05"
 OPTS+=" --nnm-T-dead 50"
 OPTS+=" --nnm-ns-iters 5"
-OPTS+=" --nnm-warmup-steps 0"
+OPTS+=" --nnm-warmup-steps 100"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
