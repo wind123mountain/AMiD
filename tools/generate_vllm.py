@@ -31,7 +31,7 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         trust_remote_code=True,
         dtype="bfloat16",
         tensor_parallel_size=1,
-        gpu_memory_utilization=0.85,
+        gpu_memory_utilization=0.9,
         seed=42
     )
 
@@ -42,18 +42,22 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         skip_special_tokens=True
     )
 
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    def truncate_prompt(tokenizer, prompt, max_prompt_tokens=512):
+        tokens = tokenizer.encode(prompt, add_special_tokens=False)
+        if len(tokens) > max_prompt_tokens:
+            tokens = tokens[:max_prompt_tokens]
+            prompt = tokenizer.decode(tokens, skip_special_tokens=True)
+        return prompt
+
+    prompts_all=[]
+    for prompt in prompts_chunk:
+        prompt = truncate_prompt(tokenizer, prompt, max_prompt_tokens=512)
+        prompts_all.append(prompt)
+
     print(f"[GPU {gpu_id}] ⚙️ Đang generate...")
-    # outputs = llm.generate(prompts_chunk, sampling_params)
-
-    chunk_size = 5000  
-    outputs = []
-
-    for i in range(0, len(prompts_chunk), chunk_size):
-        chunk = prompts_chunk[i : i + chunk_size]
-        print(f"\n🚀 Đang xử lý từ {i} đến {i + len(chunk)}...")
-        
-        outputs = llm.generate(chunk, sampling_params)
-        outputs.extend(outputs)
+    outputs = llm.generate(prompts_all, sampling_params)
 
     with open(temp_out_path, 'w', encoding='utf-8') as f:
         for i, output in enumerate(outputs):
