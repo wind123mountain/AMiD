@@ -53,7 +53,7 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
 
     prompts_all=[]
     for prompt in prompts_chunk:
-        prompt = truncate_prompt(tokenizer, prompt, max_prompt_tokens=512)
+        prompt = truncate_prompt(tokenizer, prompt, max_prompt_tokens=1020)
         prompts_all.append(prompt)
 
     print(f"[GPU {gpu_id}] ⚙️ Đang generate...")
