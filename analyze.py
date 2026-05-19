@@ -19,7 +19,7 @@ Reference:
 Usage:
     python analyze.py
     python analyze.py --n-samples 100 --max-len 256
-    python analyze.py --student-ckpt ./nnm_kd_v3_outputs/epoch_1
+    python analyze.py --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0
 """
 
 import os

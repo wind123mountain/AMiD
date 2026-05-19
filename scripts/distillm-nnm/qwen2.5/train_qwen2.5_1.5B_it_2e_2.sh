@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(2 3)
+GPUS=(4 5)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -36,10 +36,10 @@ EPOCHS=2
 KD_R=1.0
 
 # ───── SFKL ─────
-SKEW_ALPHA=0.05
+SKEW_ALPHA=0.1
 
 # ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.3
+NNM_RATIO=0.2
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
