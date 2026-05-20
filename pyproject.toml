@@ -21,7 +21,7 @@ dependencies = [
     "rouge-score",
     "rich",
     "setuptools",
-    "vllm==0.15.1",
+    "vllm==0.17.1",
     "lm-eval[math]",
     "langdetect",
     "immutabledict",
