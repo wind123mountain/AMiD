@@ -22,7 +22,7 @@ dependencies = [
     "rich",
     "setuptools",
     "vllm==0.17.1",
-    "lm-eval[vllm,math,ifeval,sentencepiece]",
+    "lm-eval[vllm,math,ifeval]",
     "langdetect",
     "immutabledict",
     "celery",
