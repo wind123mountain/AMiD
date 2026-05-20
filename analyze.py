@@ -19,7 +19,7 @@ Reference:
 Usage:
     python analyze.py
     python analyze.py --n-samples 100 --max-len 256
-    python analyze.py --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0
+    python analyze.py --device cuda:5 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0
 """
 
 import os
@@ -312,17 +312,22 @@ def plot_combined(all_results: dict, save_dir: str):
 #  Data preparation
 # ════════════════════════════════════════════════════════════════
 
-def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "gsm8k"):
+def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "math500"):
     """
-    Get evaluation prompts. Default: GSM8K (same as paper).
-    Can also use WikiText-103 for general analysis.
+    Get evaluation prompts.
+    - gsm8k:   openai/gsm8k
+    - math500: HuggingFaceH4/MATH-500
+    - wikitext: Salesforce/wikitext
     """
     if dataset_name == "wikitext":
         ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="test")
-        texts = [t for t in ds["text"] if len(t.strip()) > 100]   # filter short
+        texts = [t for t in ds["text"] if len(t.strip()) > 100]
     elif dataset_name == "gsm8k":
         ds = load_dataset("openai/gsm8k", "main", split="test")
         texts = ds["question"]
+    elif dataset_name == "math500":
+        ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
+        texts = ds["problem"]
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -346,12 +351,12 @@ def parse_args():
     p.add_argument("--student-ckpt", type=str,
                    default="results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch1_lr1e-4_kdr1.0/1246",
                    help="Path to distilled student checkpoint.")
-    p.add_argument("--n-samples",   type=int, default=100,
+    p.add_argument("--n-samples",   type=int, default=500,
                    help="Number of prompts to average over.")
     p.add_argument("--max-len",     type=int, default=512,
                    help="Max token length per prompt.")
-    p.add_argument("--dataset",     type=str, default="gsm8k",
-                   choices=["wikitext", "gsm8k"])
+    p.add_argument("--dataset", type=str, default="math500",
+                choices=["wikitext", "gsm8k", "math500"])
     p.add_argument("--save-dir",    type=str, default="./layer_analysis")
     p.add_argument("--device",      type=str, default="cuda:7")
     p.add_argument("--skip-distilled", action="store_true",
