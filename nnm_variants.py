@@ -45,14 +45,24 @@ def bnm_loss_one_layer(
     lw:       float,
     ns_iters: int = 5,
 ) -> torch.Tensor:
+    """
+    BNM: maximize the nuclear norm of student features alone.
+    Hidden vectors are L2-normalized per row so nuclear norm is bounded
+    by sqrt(N * d_prime); without this normalization, the projector can
+    inflate H_s_proj's magnitude to drive ||·||_* to infinity, which
+    blows up training (loss ~ -1e13).
+    """
+    import torch.nn.functional as F
     H_s_proj = H_s_proj.float()
     R        = R.float()
 
-    M_s = H_s_proj @ R
+    H_norm = F.normalize(H_s_proj, dim=-1)   # each row → unit L2 norm
+    M_s = H_norm @ R                          # [N, d_prime]
     m, n = M_s.shape
     scale = math.sqrt(m * n)
     nn_s = nuclear_norm_ns(M_s, ns_iters) / scale
 
+    # Negative — we MAXIMIZE the nuclear norm, so loss decreases as it grows
     return -lw * nn_s
 
 
@@ -68,19 +78,29 @@ def bnmm_loss_one_layer(
     lw:       float,
     ns_iters: int = 5,
 ) -> torch.Tensor:
+    """
+    BNMM: match the raw nuclear norm of student to teacher's.
+    Both student and teacher hidden vectors are L2-normalized per row so
+    nuclear norms are bounded and the gap loss is on a stable scale.
+    """
+    import torch.nn.functional as F
     H_s_proj = H_s_proj.float()
     H_t      = H_t.float().detach()
     R        = R.float()
 
-    M_s = H_s_proj @ R
+    H_s_norm = F.normalize(H_s_proj, dim=-1)
+    H_t_norm = F.normalize(H_t,      dim=-1)
+
+    M_s = H_s_norm @ R
     m, n = M_s.shape
     scale = math.sqrt(m * n)
     nn_s = nuclear_norm_ns(M_s, ns_iters) / scale
 
     with torch.no_grad():
-        M_t = H_t @ R
+        M_t = H_t_norm @ R
         nn_t = (nuclear_norm_ns(M_t, ns_iters) / scale).detach()
 
+    # Linear gap: drives nn_s up toward nn_t
     return lw * (nn_t - nn_s)
 
 
