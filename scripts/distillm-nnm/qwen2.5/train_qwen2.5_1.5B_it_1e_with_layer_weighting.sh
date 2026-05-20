@@ -1,6 +1,6 @@
 #! /bin/bash
 VARIANT="${1:?usage: bash $0 <nnm|bnm|bnmm|erank>}"
-GPUS=(0 1 2 3 4 5 6 7)
+GPUS=(0 1 2 3)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -28,7 +28,7 @@ DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
 BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=1
+GRAD_ACC=2
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
