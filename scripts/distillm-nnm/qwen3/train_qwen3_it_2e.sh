@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(2 3)
+GPUS=(2 3 6 7)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -39,13 +39,13 @@ KD_R=1.0
 SKEW_ALPHA=0.05
 
 # ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.5
+NNM_RATIO=0.1
 NNM_K=128
 NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm_new${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
