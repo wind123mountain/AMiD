@@ -1,5 +1,11 @@
-# bash scripts/distillm-nnm/train_qwen2.5_1.5B_it_1e_3.sh
-# bash scripts/distillm-nnm/train_qwen2.5_1.5B_it_2e_3.sh
+bash install.sh
 
-bash scripts/csd/train_qwen2.5_1.5B_it.sh
-bash scripts/csd/train_qwen3-1.7B.sh
+source .venv/bin/activate
+
+bash ./scripts/download_data.sh
+
+if [ ! -d "./processed_data/ultraInteract" ]; then
+    bash ./scripts/process_data_ultraInteract.sh
+fi
+
+bash scripts/csd/train_gemma2_2B_it_2.sh
