@@ -21,7 +21,8 @@ Usage:
     python analyze.py --input-mode prompt              # tsd_kd, prompt-only
     python analyze.py --dataset math500                # held-out generalization check
     python analyze.py --n-samples 100 --max-len 1024
-    python analyze.py --device cuda:2 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch2_lr1e-4_kdr1.0
+    python analyze.py --device cuda:7 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492 --n-samples 100 --save-dir ./layer_analysis/new_w_0.2
+    python analyze.py --device cuda:7 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.5_K128_L4_epoch2_lr1e-4_kdr1.0/2492 --n-samples 100 --save-dir ./layer_analysis/new_w_0.5
 """
 
 import os
@@ -474,7 +475,7 @@ def parse_args():
                    help="Path to distilled student checkpoint.")
     p.add_argument("--n-samples",   type=int, default=500,
                    help="Number of prompts to average over.")
-    p.add_argument("--max-len",     type=int, default=2048,
+    p.add_argument("--max-len",     type=int, default=1024,
                    help="Max token length per sequence. Bump up for "
                         "prompt+response mode since CoT responses are long.")
     p.add_argument("--dataset", type=str, default="tsd_kd",
