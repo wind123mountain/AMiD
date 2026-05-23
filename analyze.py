@@ -21,7 +21,7 @@ Usage:
     python analyze.py --input-mode prompt              # tsd_kd, prompt-only
     python analyze.py --dataset math500                # held-out generalization check
     python analyze.py --n-samples 100 --max-len 1024
-    python analyze.py --device cuda:5 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.7_K128_L4_epoch2_lr1e-4_kdr1.0
+    python analyze.py --device cuda:2 --student-ckpt results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch2_lr1e-4_kdr1.0
 """
 
 import os
@@ -59,6 +59,7 @@ def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
         if Z.shape[0] > 512:
             idx = torch.randperm(Z.shape[0])[:512]
             Z = Z[idx]
+        Z = Z - Z.mean(dim=0, keepdim=True)
         S = torch.linalg.svdvals(Z)
         nuc = S.sum().item()
         n_normalized = nuc / math.sqrt(Z.shape[0] * Z.shape[1])
