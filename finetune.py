@@ -385,7 +385,12 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
 
                 # data generation
                 if args.student_gen:
-                    r = np.random.uniform(0, 1)
+                    r_tensor = torch.zeros(1, device=device)
+                    if dist.get_rank() == 0:
+                        r_tensor.uniform_(0, 1)
+                    dist.broadcast(r_tensor, src=0)
+                    r = r_tensor.item()
+                    
                     if "mixed" in args.type and r < args.mixed_alpha:
                         model_batch = student_generator.run_sample(model, gen_data)
                         no_model_batch["label"] = model_batch.pop("no_model_batch")
