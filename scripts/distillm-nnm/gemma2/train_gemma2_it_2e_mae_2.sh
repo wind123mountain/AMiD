@@ -1,6 +1,6 @@
 #! /bin/bash
 
-GPUS=(0 1)
+GPUS=(0 1 2 3)
 export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
@@ -27,7 +27,7 @@ DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
 # ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
 BATCH_SIZE=4
 LR=5e-5
-GRAD_ACC=8
+GRAD_ACC=4
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
