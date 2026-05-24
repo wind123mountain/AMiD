@@ -6,7 +6,7 @@
 
 source .venv/bin/activate
 
-bash ./scripts/process_data_ultraInteract.sh
+# bash ./scripts/process_data_ultraInteract.sh
 
 bash scripts/distillm-nnm/gemma2/train_gemma2_it_2e_mae.sh
 bash scripts/distillm-nnm/gemma2/train_gemma2_it_2e_mae_2.sh
