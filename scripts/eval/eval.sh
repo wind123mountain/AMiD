@@ -39,7 +39,7 @@ run_eval() {
         --fewshot_as_multiturn
         --log_samples
         --output_path "${OUT}"
-        --gen_kwargs "max_new_tokens=4096"
+        --gen_kwargs "max_new_tokens=5120"
     )
 
     # MBPP: không dùng apply_chat_template, không fewshot_as_multiturn
@@ -50,7 +50,7 @@ run_eval() {
         --log_samples
         --output_path "${OUT}"
         --apply_chat_template
-        --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        --gen_kwargs "max_new_tokens=5120,temperature=0.0"
     )
 
     # Thêm BASE_ARGS_MATH — không có --fewshot_as_multiturn
@@ -59,9 +59,10 @@ run_eval() {
         --model_args "${MODEL_ARGS}"
         --batch_size auto
         --apply_chat_template
+        --fewshot_as_multiturn
         --log_samples
         --output_path "${OUT}"
-        --gen_kwargs "max_new_tokens=4096,temperature=0.0"
+        --gen_kwargs "max_new_tokens=5120,temperature=0.0"
     )
 
     {
@@ -221,6 +222,11 @@ run_eval_no_chat() {
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it/mae_nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0_ckpt2492" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=results/gemma2-2b-it#sfkl_nnm_lora_mae/nnm0.3_K128_L4_epoch2_lr5e-5_kdr1.0/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+
 
 
 CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \

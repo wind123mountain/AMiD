@@ -124,7 +124,7 @@ OPTS+=" --peft-lora-r 16"
 OPTS+=" --peft-lora-alpha 64"
 OPTS+=" --peft-lora-dropout 0.05"
 
-OPTS+=" --delta-threshold 0.05"
+OPTS+=" --delta-threshold 0.03"
 
 
 export NCCL_DEBUG=""
