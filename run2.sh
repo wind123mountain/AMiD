@@ -1,11 +1,8 @@
-bash install.sh
-
 source .venv/bin/activate
 
-bash ./scripts/download_data.sh
-
-if [ ! -d "./processed_data/ultraInteract" ]; then
-    bash ./scripts/process_data_ultraInteract.sh
-fi
-
-bash scripts/csd/train_gemma2_2B_it_2.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2_2.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2_3.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2_lr2.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2_lr3.sh
+bash scripts/distillm-nnm/qwen2.5/train_qwen2.5_1.5B_it_2e_2_lr4.sh

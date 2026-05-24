@@ -45,7 +45,7 @@ NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm_new${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
+SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm_new_finetune_2_${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
@@ -131,7 +131,7 @@ export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune_2.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"
