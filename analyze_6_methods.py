@@ -58,7 +58,7 @@ peft_integration.is_peft_available = lambda: False
 MODEL_STYLE = {
     "Teacher":      {"color": "#1f77b4", "marker": "o", "linestyle": "-",  "lw": 2.2, "alpha": 0.95},
     "Student-base": {"color": "#8c564b", "marker": "x", "linestyle": "--", "lw": 1.5, "alpha": 0.75},
-    "DistiLLM":     {"color": "#ff7f0e", "marker": "s", "linestyle": "--", "lw": 1.6, "alpha": 0.85},
+    "TSD":     {"color": "#ff7f0e", "marker": "s", "linestyle": "--", "lw": 1.6, "alpha": 0.85},
     "AMID":         {"color": "#9467bd", "marker": "D", "linestyle": "--", "lw": 1.6, "alpha": 0.85},
     "CSD":          {"color": "#e377c2", "marker": "v", "linestyle": "--", "lw": 1.6, "alpha": 0.85},
     "NNM (ours)":   {"color": "#2ca02c", "marker": "^", "linestyle": "-",  "lw": 2.0, "alpha": 0.95},
