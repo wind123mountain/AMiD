@@ -25,7 +25,7 @@ Usage:
     python analyze_layers.py
     python analyze_layers.py --n-samples 100 --max-len 256 --batch-size 8
     python analyze_layers.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
-    python analyze_layers.py --device cuda:0 --n-samples 100 --save-dir ./layer_analysis/6_method_tsd \
+    python analyze_6_methods.py --device cuda:1 --n-samples 100 --save-dir ./layer_analysis/6_method_math500 \
         --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
         --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
         --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
@@ -239,7 +239,7 @@ def compute_layer_metrics(
         out = model(**enc, output_hidden_states=True, return_dict=True)
 
         # Move masks to CPU once — used for unpadding every layer/sample.
-        masks = enc["attention_mask"].bool().cpu()  # [B, T_pad]
+        masks = enc["attention_mask"].bool()  # [B, T_pad]
 
         for b_idx in range(len(batch)):
             real_len = masks[b_idx].sum().item()
@@ -251,7 +251,7 @@ def compute_layer_metrics(
 
             for lid in range(n_total):
                 # Unpad: keep only real tokens → [real_len, D]
-                Z_raw = out.hidden_states[lid][b_idx].cpu()  # [T_pad, D]
+                Z_raw = out.hidden_states[lid][b_idx]  # [T_pad, D]
                 Z_raw = Z_raw[masks[b_idx]].float()          # [real_len, D]
 
                 if save_hs_dir:
