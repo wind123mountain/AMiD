@@ -25,11 +25,11 @@ Usage:
     python analyze_layers.py
     python analyze_layers.py --n-samples 100 --max-len 256 --batch-size 8
     python analyze_layers.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
-    python analyze_6_methods.py --device cuda:1 --n-samples 100 --save-dir ./layer_analysis/6_method_math500 \
+    python analyze_6_methods.py --device cuda:1 --n-samples 100 --save-dir ./layer_analysis/6_method_tsd \
         --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
         --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
         --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
-        --save-hidden-states
+        --save-hidden-states --dataset tsd_kd --batch-size 128 --max-len 512 
 """
 
 import os
@@ -240,6 +240,8 @@ def compute_layer_metrics(
 
         # Move masks to CPU once — used for unpadding every layer/sample.
         masks = enc["attention_mask"].bool()  # [B, T_pad]
+
+        print("encode done!")
 
         for b_idx in range(len(batch)):
             real_len = masks[b_idx].sum().item()

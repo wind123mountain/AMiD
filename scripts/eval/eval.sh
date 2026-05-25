@@ -3,10 +3,10 @@
 # hf download VoCuc/AMiD --include "qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4/7476/*" \
 #         --local-dir "results"
 
-hf download VoCuc/nnm --include "gemma2-2b-it#csd_csd/gemma2-2b-it#csd/*" \
+hf download VoCuc/nnm-eval --include "layer_analysis/6_method/hidden_states/*" \
         --local-dir "results"
 
-TP=2
+TP=4
 
 LOG_DIR="outputs/eval_results_2/logs"
 OUT_DIR="outputs/eval_results_2/vllm"
@@ -49,7 +49,7 @@ run_eval() {
         --batch_size auto
         --log_samples
         --output_path "${OUT}"
-        --apply_chat_template
+        # --apply_chat_template
         --gen_kwargs "max_new_tokens=5120,temperature=0.0"
     )
 
@@ -59,7 +59,7 @@ run_eval() {
         --model_args "${MODEL_ARGS}"
         --batch_size auto
         --apply_chat_template
-        --fewshot_as_multiturn
+        # --fewshot_as_multiturn
         --log_samples
         --output_path "${OUT}"
         --gen_kwargs "max_new_tokens=5120,temperature=0.0"
@@ -71,17 +71,17 @@ run_eval() {
         echo "Start: $(date)"
         echo "=========================================="
 
-        echo ">>> [1/10] GSM8K"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k
+        # echo ">>> [1/10] GSM8K"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm8k
 
-        echo ">>> [2/10] MATH (Hendrycks full)"
-        lm_eval "${BASE_ARGS_MATH[@]}" \
-            --tasks hendrycks_math \
-            --num_fewshot 4 \
+        # echo ">>> [2/10] MATH (Hendrycks full)"
+        # lm_eval "${BASE_ARGS_MATH[@]}" \
+        #     --tasks hendrycks_math \
+        #     --num_fewshot 4 \
             
-        echo ">>> [2/10] MATH (Minerva format)"
-        lm_eval "${BASE_ARGS[@]}" \
-            --tasks minerva_math \
+        # echo ">>> [2/10] MATH (Minerva format)"
+        # lm_eval "${BASE_ARGS[@]}" \
+        #     --tasks minerva_math \
             # --num_fewshot 4
 
         echo ">>> [3/10] MMLU-STEM"
@@ -90,14 +90,14 @@ run_eval() {
         # echo ">>> [4/10] SciQ"
         # lm_eval "${BASE_ARGS[@]}" --tasks sciq
 
-        echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --confirm_run_unsafe_code  --num_fewshot 3
+        # echo ">>> [5/10] MBPP"
+        # lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --confirm_run_unsafe_code  --num_fewshot 3
 
-        echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp_instruct --confirm_run_unsafe_code  --num_fewshot 3
+        # echo ">>> [5/10] MBPP"
+        # lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp_instruct --confirm_run_unsafe_code  --num_fewshot 3
 
-        echo ">>> [6/10] GSM-Plus (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus
+        # echo ">>> [6/10] GSM-Plus (5-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus
 
         # echo ">>> [7/10] MMLU-Pro-Math (5-shot)"
         # lm_eval "${BASE_ARGS[@]}" --tasks mmlu_pro_math
@@ -108,11 +108,11 @@ run_eval() {
         # echo ">>> [9/10] MuSR (0-shot)"
         # lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_musr --num_fewshot 0
 
-        echo ">>> [10/10] IFEval (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval
+        # echo ">>> [10/10] IFEval (0-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks leaderboard_ifeval
 
-        echo ">>> [10/10] IFEval (0-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks ifeval
+        # echo ">>> [10/10] IFEval (0-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks ifeval
 
 
         echo "=========================================="
@@ -223,49 +223,69 @@ run_eval_no_chat() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L2_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L2_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L8_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L8_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_3_0.1_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_3_0.1_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+CUDA_VISIBLE_DEVICES=4,5,6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_4_0.1_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_4_0.1_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
 CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it/mae_nnm0.3_K128_L4_epoch2_lr1e-4_kdr1.0_ckpt2492" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=results/gemma2-2b-it#sfkl_nnm_lora_mae/nnm0.3_K128_L4_epoch2_lr5e-5_kdr1.0/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "qwen3-1.7B#csd/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen3-1.7B#csd/ab_pr_0.5_0.5_8_1e-4,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
+
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
 
 
 
 CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it" \
-    "pretrained=google/gemma-2-2b-it,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora_mae/nnm0.1_K128_L4_epoch2_lr5e-5_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora_mae/nnm0.1_K128_L4_epoch2_lr5e-5_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
 
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval_no_chat \
-    "gemma-2-2b-it-no-chat" \
-    "pretrained=google/gemma-2-2b-it,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it#amid/ab_pr_0.5_0.5_2_1e-4" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=results/gemma2-2b-it#csd_csd/gemma2-2b-it#csd/ab_pr_0.5_0.5_2_1e-4/7476,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it#csd/ab_pr_0.5_0.5_2_1e-4" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=results/gemma2-2b-it#csd_csd/gemma2-2b-it#csd/csd_ab_pr_0.5_0.5_4_1e-4/7476,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+
+
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen3-1.7B#csd/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen3-1.7B#csd/ab_pr_0.5_0.5_8_1e-4,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
+
+
+CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
+
+
 
 CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it-nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
-    "pretrained=googlegemma-2-2b-it,lora_local_path=results/gemma2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/4984,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval_no_chat \
-    "gemma-2-2b-it-nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0_run_eval_no_chat" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=results/gemma2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/4984,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen3-1.7B" \
-    "pretrained=Qwen/Qwen3-1.7B,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen3-1.7B-resoning" \
-    "pretrained=Qwen/Qwen3-1.7B,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,reasoning_parser=deepseek_r1,enable_thinking=True,think_end_token=\"</think>\""
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen3-1.7B-no-thinking" \
-    "pretrained=Qwen/Qwen3-1.7B,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval_no_chat \
-    "qwen3-1.7B-no-chat" \
-    "pretrained=Qwen/Qwen3-1.7B,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
-
-CUDA_VISIBLE_DEVICES=6,7 HF_ALLOW_CODE_EVAL=1 run_eval_no_chat \
-    "qwen3-1.7B-no-chat-no-thinking" \
-    "pretrained=Qwen/Qwen3-1.7B,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,enable_thinking=False"
-
-
+    "qwen2.5-1.5B-Instruct#sfkl_nnm_lora_mae/nnm0.1_K128_L4_epoch2_lr5e-5_kdr1.0" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora_mae/nnm0.1_K128_L4_epoch2_lr5e-5_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
 
 
 # CUDA_VISIBLE_DEVICES=4,5 HF_ALLOW_CODE_EVAL=1 run_eval \
@@ -503,12 +523,33 @@ echo "=== Done ==="
 #   --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
 #   --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm0.1_K128_L4_epoch2_lr1e-4_kdr1.0
 
-# python tools/merge_model.py \
-#   --base_model Qwen/Qwen2.5-1.5B-Instruct \
-#   --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/erank0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
-#   --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/erank0.2_K128_L4_epoch2_lr1e-4_kdr1.0
+python tools/merge_model.py \
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_2_0.1_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_2_0.1_K128_L4_epoch2_lr1e-4_kdr1.0
 
-# python tools/merge_model.py \
-#   --base_model Qwen/Qwen3-1.7B \
-#   --adapter results/qwen3-1.7B#sfkl_nnm_lora/erank0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
-#   --output results/qwen3-1.7B#sfkl_nnm_lora/erank0.2_K128_L4_epoch2_lr1e-4_kdr1.0
+python tools/merge_model.py \
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_3_0.1_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_3_0.1_K128_L4_epoch2_lr1e-4_kdr1.0
+
+python tools/merge_model.py \
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_4_0.1_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new_finetune_4_0.1_K128_L4_epoch2_lr1e-4_kdr1.0
+
+
+python tools/merge_model.py \
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L4_epoch2_lr1e-4_kdr1.0/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L4_epoch2_lr1e-4_kdr1.0
+
+python tools/merge_model.py \
+  --base_model Qwen/Qwen2.5-1.5B-Instruct \
+  --adapter results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L8_epoch2_lr1e-4_kdr1.0/2492 \
+  --output results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.1_K128_L8_epoch2_lr1e-4_kdr1.0
+
+python tools/merge_model.py \
+  --base_model Qwen/Qwen3-1.7B \
+  --adapter results/qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4/7476 \
+  --output results/qwen3-1.7B#amid/ab_pr_0.5_0.5_8_1e-4
