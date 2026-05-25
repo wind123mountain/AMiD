@@ -23,9 +23,9 @@ Reference:
 
 Usage:
     python analyze_layers.py
-    python analyze_layers.py --n-samples 100 --max-len 256
-    python analyze.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
-    python analyze_6_methods.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method \
+    python analyze_layers.py --n-samples 100 --max-len 256 --batch-size 8
+    python analyze_layers.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
+    python analyze_layers.py --device cuda:0 --n-samples 100 --save-dir ./layer_analysis/6_method_tsd \
         --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
         --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
         --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
@@ -62,24 +62,65 @@ MODEL_STYLE = {
     "CSD":          {"color": "#e377c2", "marker": "v", "linestyle": "--", "lw": 1.6, "alpha": 0.85},
     "NNM (ours)":   {"color": "#2ca02c", "marker": "^", "linestyle": "-",  "lw": 2.0, "alpha": 0.95},
 }
-MODEL_ORDER = list(MODEL_STYLE.keys())   # plot legend order
+MODEL_ORDER = list(MODEL_STYLE.keys())
+
+
+# ════════════════════════════════════════════════════════════════
+#  Shared helper
+# ════════════════════════════════════════════════════════════════
+
+def _subsample(Z: torch.Tensor, max_n: int = 512) -> torch.Tensor:
+    """
+    Subsample rows of Z to at most max_n rows using a deterministic generator
+    seeded on the tensor shape — no global random state is touched.
+    """
+    if Z.shape[0] <= max_n:
+        return Z
+    g = torch.Generator()
+    g.manual_seed(Z.shape[0] * Z.shape[1])
+    idx = torch.randperm(Z.shape[0], generator=g)[:max_n]
+    return Z[idx]
+
+
+def _compute_metrics_for_Z(Z_raw: torch.Tensor) -> dict:
+    """
+    Compute all 5 metrics for a single [T, D] float32 tensor.
+
+    Z_raw  — raw (uncentered) token representations for one sample at one layer.
+
+    Centering strategy:
+        • nuclear_norm, effective_rank, matrix_entropy — need centered Z so that
+          singular values reflect variance around the mean, not the mean itself.
+          Centering is done once here and shared by all three.
+        • curvature — measures angles between consecutive *difference* vectors
+          (Z[i+1] - Z[i]); centering has no effect on differences, so Z_sub
+          (uncentered) is passed directly.
+    """
+    Z_sub = _subsample(Z_raw)                          # [min(T,512), D]
+    Z     = Z_sub - Z_sub.mean(dim=0, keepdim=True)   # centered, shared
+
+    nuc, nuc_n = nuclear_norm(Z)
+    return {
+        "nuclear_norm":      nuc,
+        "nuclear_norm_norm": nuc_n,
+        "effective_rank":    effective_rank(Z),
+        "matrix_entropy":    matrix_entropy_alpha1(Z),
+        "curvature":         curvature(Z_sub),          # uncentered intentionally
+    }
 
 
 # ════════════════════════════════════════════════════════════════
 #  Metric computations
+#  All functions receive an already-centered, already-subsampled Z
+#  (except curvature which receives uncentered Z_sub).
 # ════════════════════════════════════════════════════════════════
 
 @torch.no_grad()
 def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
-    """||Z||_* and  ||Z||_* / sqrt(N*D)."""
-    Z = Z.float()
+    """||Z||_* and ||Z||_* / sqrt(N*D).  Z must already be centered."""
     if Z.shape[0] < 2 or Z.shape[1] < 2:
         return 0.0, 0.0
     try:
-        if Z.shape[0] > 512:
-            idx = torch.randperm(Z.shape[0])[:512]
-            Z = Z[idx]
-        Z = Z - Z.mean(dim=0, keepdim=True)
         S = torch.linalg.svdvals(Z)
         nuc = S.sum().item()
         nuc_n = nuc / math.sqrt(Z.shape[0] * Z.shape[1])
@@ -90,14 +131,10 @@ def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
 
 @torch.no_grad()
 def effective_rank(Z: torch.Tensor) -> float:
-    """exp(H(p)), p_i = σ_i / Σσ_j."""
-    Z = Z.float()
+    """exp(H(p)), p_i = σ_i / Σσ_j.  Z must already be centered."""
     if Z.shape[0] < 2 or Z.shape[1] < 2:
         return 0.0
     try:
-        if Z.shape[0] > 512:
-            idx = torch.randperm(Z.shape[0])[:512]
-            Z = Z[idx]
         S = torch.linalg.svdvals(Z)
         S = S[S > 1e-10]
         if S.numel() == 0:
@@ -111,13 +148,9 @@ def effective_rank(Z: torch.Tensor) -> float:
 
 @torch.no_grad()
 def matrix_entropy_alpha1(Z: torch.Tensor) -> float:
-    """Von Neumann entropy on Gram K = Z Z^T."""
-    Z = Z.float()
+    """Von Neumann entropy on Gram K = Z Z^T.  Z must already be centered."""
     if Z.shape[0] < 2:
         return 0.0
-    if Z.shape[0] > 512:
-        idx = torch.randperm(Z.shape[0])[:512]
-        Z = Z[idx]
     try:
         S = torch.linalg.svdvals(Z)
         eig = S ** 2
@@ -132,8 +165,8 @@ def matrix_entropy_alpha1(Z: torch.Tensor) -> float:
 
 @torch.no_grad()
 def curvature(Z: torch.Tensor) -> float:
-    """Mean arccos cosine between consecutive token diff vectors."""
-    Z = Z.float()
+    """Mean arccos cosine between consecutive token diff vectors.
+    Z should NOT be centered (centering does not affect differences)."""
     if Z.shape[0] < 3:
         return 0.0
     v = Z[1:] - Z[:-1]
@@ -143,68 +176,106 @@ def curvature(Z: torch.Tensor) -> float:
 
 
 # ════════════════════════════════════════════════════════════════
-#  Per-layer metric extraction
+#  Per-layer metric extraction  — BATCH VERSION
 # ════════════════════════════════════════════════════════════════
 
 @torch.no_grad()
-def compute_layer_metrics(model, tokenizer, prompts, device, max_len=256, save_hs_dir=None):
-    """Return dict[metric] -> list of (n_layers + 1) averaged values. Optionally save hidden states."""
+def compute_layer_metrics(
+    model,
+    tokenizer,
+    prompts: list[str],
+    device: str,
+    max_len: int = 256,
+    batch_size: int = 8,
+    save_hs_dir: str = None,
+) -> dict:
+    """
+    Return dict[metric] -> list of (n_layers + 1) averaged values.
+
+    Processes prompts in batches of `batch_size`.  Each batch is tokenized
+    with right-padding; after the forward pass the attention mask is used to
+    strip pad tokens before computing metrics, so each sample only contributes
+    its real tokens to the statistics.
+
+    Args:
+        model       : HuggingFace CausalLM, already on `device`.
+        tokenizer   : corresponding tokenizer.
+        prompts     : list of raw text strings.
+        device      : torch device string, e.g. "cuda:0".
+        max_len     : maximum token length per sample (truncation).
+        batch_size  : number of prompts per forward pass.
+        save_hs_dir : if given, saves per-sample hidden states as .pt files
+                      with shape [n_layers+1, real_len, D] (no padding).
+    """
     model.eval()
     n_layers = model.config.num_hidden_layers
     n_total  = n_layers + 1
 
-    metrics = {
-        "nuclear_norm":      [[] for _ in range(n_total)],
-        "nuclear_norm_norm": [[] for _ in range(n_total)],
-        "effective_rank":    [[] for _ in range(n_total)],
-        "matrix_entropy":    [[] for _ in range(n_total)],
-        "curvature":         [[] for _ in range(n_total)],
-    }
+    metric_keys = ("nuclear_norm", "nuclear_norm_norm",
+                   "effective_rank", "matrix_entropy", "curvature")
+    metrics = {k: [[] for _ in range(n_total)] for k in metric_keys}
 
     if save_hs_dir:
         os.makedirs(save_hs_dir, exist_ok=True)
 
-    for sample_idx, prompt in enumerate(tqdm(prompts, desc="  layers", leave=False)):
+    # Right-pad so that real tokens are contiguous at the start of each row,
+    # making it trivial to unpad via attention_mask.
+    orig_padding_side = tokenizer.padding_side
+    tokenizer.padding_side = "right"
+
+    batches = [prompts[i : i + batch_size] for i in range(0, len(prompts), batch_size)]
+    sample_idx = 0
+
+    for batch in tqdm(batches, desc="  batches", leave=False):
         enc = tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=max_len,
+            batch,
+            return_tensors="pt",
+            truncation=True,
+            max_length=max_len,
+            padding=True,       # pad to longest sequence in the batch
         ).to(device)
-        if enc["input_ids"].shape[1] < 5:
-            continue
 
+        # out.hidden_states: tuple of (n_layers+1) tensors, each [B, T_pad, D]
         out = model(**enc, output_hidden_states=True, return_dict=True)
-        
-        sample_hidden_states = []
 
-        for lid in range(n_total):
-            # Extract and detach representation
-            Z_raw = out.hidden_states[lid].squeeze(0).cpu()
-            
-            # Save raw representation if directory is provided (keep in original dtype to save space)
+        # Move masks to CPU once — used for unpadding every layer/sample.
+        masks = enc["attention_mask"].bool().cpu()  # [B, T_pad]
+
+        for b_idx in range(len(batch)):
+            real_len = masks[b_idx].sum().item()
+            if real_len < 5:
+                sample_idx += 1
+                continue
+
+            sample_hidden_states = []
+
+            for lid in range(n_total):
+                # Unpad: keep only real tokens → [real_len, D]
+                Z_raw = out.hidden_states[lid][b_idx].cpu()  # [T_pad, D]
+                Z_raw = Z_raw[masks[b_idx]].float()          # [real_len, D]
+
+                if save_hs_dir:
+                    sample_hidden_states.append(Z_raw.clone())
+
+                m = _compute_metrics_for_Z(Z_raw)
+                for k in metric_keys:
+                    metrics[k][lid].append(m[k])
+
             if save_hs_dir:
-                sample_hidden_states.append(Z_raw.clone())
-                
-            # Convert to float for metric computations
-            Z = Z_raw.float()
-            
-            nuc, nuc_n = nuclear_norm(Z)
-            metrics["nuclear_norm"][lid].append(nuc)
-            metrics["nuclear_norm_norm"][lid].append(nuc_n)
-            metrics["effective_rank"][lid].append(effective_rank(Z))
-            metrics["matrix_entropy"][lid].append(matrix_entropy_alpha1(Z))
-            metrics["curvature"][lid].append(curvature(Z))
+                # Shape: [n_layers+1, real_len, D]  — no padding tokens saved.
+                stacked = torch.stack(sample_hidden_states)
+                out_path = os.path.join(save_hs_dir, f"sample_{sample_idx}.pt")
+                torch.save(stacked, out_path)
 
-        # Save hidden states to disk for this specific prompt
-        if save_hs_dir:
-            # Stack into shape: [num_layers + 1, seq_len, hidden_dim]
-            stacked_hs = torch.stack(sample_hidden_states)
-            out_path = os.path.join(save_hs_dir, f"sample_{sample_idx}.pt")
-            torch.save(stacked_hs, out_path)
+            sample_idx += 1
 
         del out
         torch.cuda.empty_cache()
 
+    tokenizer.padding_side = orig_padding_side
+
     return {
-        k: [float(np.mean(v)) if len(v) > 0 else 0.0 for v in vals]
+        k: [float(np.mean(v)) if v else 0.0 for v in vals]
         for k, vals in metrics.items()
     }
 
@@ -286,11 +357,11 @@ def plot_metric(metric_name: str, results: dict, save_dir: str,
 def plot_combined_1x5(all_results: dict, save_dir: str):
     """1x5 panel — all 5 metrics side by side, 6 curves each."""
     metrics_spec = [
-        ("nuclear_norm",      "Nuclear Norm ||Z||_*",          False),
-        ("nuclear_norm_norm", "Nuclear Norm (normalized)",     False),
-        ("effective_rank",    "Effective Rank",                False),
-        ("matrix_entropy",    "Matrix Entropy (α=1)",          False),
-        ("curvature",         "Curvature (rad)",               False),
+        ("nuclear_norm",      "Nuclear Norm ||Z||_*",      False),
+        ("nuclear_norm_norm", "Nuclear Norm (normalized)", False),
+        ("effective_rank",    "Effective Rank",            False),
+        ("matrix_entropy",    "Matrix Entropy (α=1)",      False),
+        ("curvature",         "Curvature (rad)",           False),
     ]
 
     fig, axes = plt.subplots(1, 5, figsize=(26, 5))
@@ -314,7 +385,6 @@ def plot_combined_1x5(all_results: dict, save_dir: str):
             ax.set_yscale("log")
         ax.grid(True, alpha=0.3)
 
-    # One shared legend at the bottom
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels,
                loc="lower center", ncol=len(labels), fontsize=11,
@@ -336,17 +406,12 @@ def plot_combined_1x5(all_results: dict, save_dir: str):
 def _format_chat_prompt(messages, tokenizer, response: str = None):
     """
     Convert a list-of-messages [{role, content}, ...] into a string the model
-    actually sees. Use the tokenizer's chat template if available, otherwise
-    concatenate raw contents.
-
-    If `response` is provided (non-empty string), it is appended as an
-    assistant turn so the formatted text becomes prompt + response — the
-    full sequence the student is trained on during KD.
+    actually sees.  If `response` is provided it is appended as an assistant
+    turn so the formatted text is prompt + response — the full sequence the
+    student is trained on during KD.
     """
     if not isinstance(messages, list) or len(messages) == 0:
         return None
-    # Keep only the input side (user/system); drop any pre-existing assistant
-    # turns so we can attach the canonical teacher response cleanly.
     input_msgs = [
         m for m in messages
         if isinstance(m, dict) and m.get("role") in ("user", "system")
@@ -360,7 +425,6 @@ def _format_chat_prompt(messages, tokenizer, response: str = None):
         try:
             if has_response:
                 full_msgs = input_msgs + [{"role": "assistant", "content": response}]
-                # add_generation_prompt=False — we already supplied the assistant turn.
                 return tokenizer.apply_chat_template(
                     full_msgs, tokenize=False, add_generation_prompt=False,
                 )
@@ -370,7 +434,6 @@ def _format_chat_prompt(messages, tokenizer, response: str = None):
         except Exception:
             pass
 
-    # Fallback when no chat template is available.
     text = "\n".join(
         m.get("content", "") for m in input_msgs if isinstance(m, dict)
     )
@@ -387,35 +450,23 @@ def get_eval_prompts(tokenizer, n_samples: int = 50,
 
     Args:
         input_mode:
-            - "prompt"          : only the user/system prompt (ends with the
-                                  assistant generation marker). Matches what the
-                                  model sees at inference time before decoding.
-            - "prompt_response" : prompt + teacher's response (the full sequence
-                                  the student sees under KD teacher forcing).
-                                  Recommended for distillation analysis since
-                                  the KD loss is computed on response tokens.
-
-    Datasets:
-        - gsm8k    : openai/gsm8k                              (prompt only)
-        - math500  : HuggingFaceH4/MATH-500                    (prompt only)
-        - wikitext : Salesforce/wikitext                       (plain text)
-        - tsd_kd   : Minsang/TSD-KD-Qwen2.5-1.5B-Instruct-Gen
-                     columns: instruction, prompt[messages], response.
-                     Supports both input modes.
+            - "prompt"          : only the user/system prompt.
+            - "prompt_response" : prompt + teacher's response (full KD sequence).
     """
     if dataset_name == "wikitext":
         ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="test")
         texts = [t for t in ds["text"] if len(t.strip()) > 100]
+
     elif dataset_name == "gsm8k":
         ds = load_dataset("openai/gsm8k", "main", split="test")
         texts = ds["question"]
+
     elif dataset_name == "math500":
         ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
         texts = ds["problem"]
 
     elif dataset_name == "tsd_kd":
         repo = "Minsang/TSD-KD-Qwen2.5-1.5B-Instruct-Gen"
-        # KD generation datasets usually only ship a 'train' split.
         try:
             ds = load_dataset(repo, split="train")
         except Exception:
@@ -433,8 +484,6 @@ def get_eval_prompts(tokenizer, n_samples: int = 50,
             print("  WARNING: 'response' column missing — falling back to prompt-only.")
 
         texts = []
-        # Preferred path: the chat-format 'prompt' column rendered with the
-        # tokenizer's chat template, optionally followed by 'response'.
         if "prompt" in cols:
             for row in ds:
                 p = row.get("prompt")
@@ -447,7 +496,7 @@ def get_eval_prompts(tokenizer, n_samples: int = 50,
                     t = None
                 if t and len(t.strip()) > 20:
                     texts.append(t)
-        # Fallback path: build from 'instruction' (+ optional 'response')
+
         if len(texts) == 0 and "instruction" in cols:
             for row in ds:
                 instr = row.get("instruction")
@@ -481,11 +530,12 @@ def get_eval_prompts(tokenizer, n_samples: int = 50,
 
 def parse_args():
     p = argparse.ArgumentParser(description="Layer-wise metric analysis (6 models)")
-    # base IDs
+
+    # base model IDs
     p.add_argument("--teacher-id",  type=str, default="Qwen/Qwen2.5-14B-Instruct")
     p.add_argument("--student-id",  type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
 
-    # 4 distilled checkpoints — placeholders, fill in later
+    # distilled checkpoints
     p.add_argument("--ckpt-distillm", type=str,
                    default="results/PLACEHOLDER_distillm/checkpoint",
                    help="Path to DistiLLM checkpoint.")
@@ -502,18 +552,23 @@ def parse_args():
     # data
     p.add_argument("--n-samples",   type=int, default=100)
     p.add_argument("--max-len",     type=int, default=512)
-    p.add_argument("--dataset", type=str, default="tsd_kd",
+    p.add_argument("--dataset",     type=str, default="math500",
                    choices=["wikitext", "gsm8k", "math500", "tsd_kd"])
 
     # output / device
     p.add_argument("--save-dir",    type=str, default="./layer_analysis")
     p.add_argument("--device",      type=str, default="cuda:0")
 
-    # save states
-    p.add_argument("--save-hidden-states", action="store_true", 
-                   help="Save the raw hidden states to disk for later reuse.")
+    # batch size
+    p.add_argument("--batch-size",  type=int, default=8,
+                   help="Number of prompts per forward pass. "
+                        "Reduce if OOM; increase for speed if VRAM allows.")
 
-    # skip flags — useful while ckpts aren't ready yet
+    # save hidden states
+    p.add_argument("--save-hidden-states", action="store_true",
+                   help="Save raw hidden states to disk for later reuse.")
+
+    # skip flags
     p.add_argument("--skip-teacher",      action="store_true")
     p.add_argument("--skip-student-base", action="store_true")
     p.add_argument("--skip-distillm",     action="store_true")
@@ -529,7 +584,6 @@ def parse_args():
 # ════════════════════════════════════════════════════════════════
 
 def _ckpt_available(path: str) -> bool:
-    """Check if a ckpt path is real (vs placeholder)."""
     return os.path.isdir(path) and "PLACEHOLDER" not in path
 
 
@@ -540,13 +594,14 @@ def main():
 
     print(f"\n{'='*70}")
     print(f"  Layer-wise representation analysis (6 models)")
-    print(f"  Device: {device}")
-    print(f"  Dataset: {args.dataset}, n_samples={args.n_samples}, max_len={args.max_len}")
+    print(f"  Device     : {device}")
+    print(f"  Dataset    : {args.dataset}, n_samples={args.n_samples}, max_len={args.max_len}")
+    print(f"  Batch size : {args.batch_size}")
     if args.save_hidden_states:
         print(f"  [!] Will save hidden states to disk.")
     print(f"{'='*70}\n")
 
-    # ── Tokenizer (shared default — Qwen family) ─────────────────
+    # Shared tokenizer (Qwen family default)
     tokenizer = AutoTokenizer.from_pretrained(
         args.student_id, trust_remote_code=True, padding_side="right",
     )
@@ -556,11 +611,11 @@ def main():
     print("Preparing eval prompts...")
     prompts = get_eval_prompts(tokenizer, args.n_samples, args.dataset)
 
-    # ── Model list (label, path, tokenizer source, skip-flag) ────
+    # (label, ckpt_path, tokenizer_fallback_id, skip_flag)
     model_configs = [
         ("Teacher",      args.teacher_id,    args.teacher_id,  args.skip_teacher),
         ("Student-base", args.student_id,    args.student_id,  args.skip_student_base),
-        # ("DistiLLM",     args.ckpt_distillm, args.student_id,  args.skip_distillm),
+        # ("DistiLLM",   args.ckpt_distillm, args.student_id,  args.skip_distillm),
         ("AMID",         args.ckpt_amid,     args.student_id,  args.skip_amid),
         ("CSD",          args.ckpt_csd,      args.student_id,  args.skip_csd),
         ("NNM (ours)",   args.ckpt_nnm,      args.student_id,  args.skip_nnm),
@@ -575,23 +630,25 @@ def main():
             print(f"  ⏭  skipped (--skip flag)")
             continue
 
-        # For distilled checkpoints, check the path looks real
         is_base = label in ("Teacher", "Student-base")
         if not is_base and not _ckpt_available(path):
             print(f"  ⏭  skipped (checkpoint not found / placeholder: {path})")
             continue
-            
-        # Determine directory to save hidden states for this specific model
+
         save_hs_dir = None
         if args.save_hidden_states:
-            safe_label = label.replace(" ", "_").replace("(", "").replace(")", "").lower()
+            safe_label = (label.replace(" ", "_")
+                               .replace("(", "").replace(")", "").lower())
             save_hs_dir = os.path.join(args.save_dir, "hidden_states", safe_label)
 
         try:
             model = load_model_safely(path, device)
             tok   = tokenizer if is_base else get_tokenizer_for(path, tok_fallback)
             all_results[label] = compute_layer_metrics(
-                model, tok, prompts, device, args.max_len, save_hs_dir=save_hs_dir
+                model, tok, prompts, device,
+                max_len=args.max_len,
+                batch_size=args.batch_size,
+                save_hs_dir=save_hs_dir,
             )
             del model
             torch.cuda.empty_cache()
@@ -599,7 +656,7 @@ def main():
             print(f"  ✗ failed to process {label}: {e}")
             continue
 
-    # ── Save raw numbers ────────────────────────────────────────
+    # ── Save raw numbers ──────────────────────────────────────────
     json_path = os.path.join(args.save_dir, "metrics.json")
     with open(json_path, "w") as f:
         json.dump(all_results, f, indent=2)
@@ -609,20 +666,25 @@ def main():
         print("No results to plot — exiting.")
         return
 
-    # ── Individual plots (5 metrics) ────────────────────────────
+    # ── Individual plots ──────────────────────────────────────────
     print("\nGenerating plots...")
-    plot_metric("nuclear_norm",      {k: v["nuclear_norm"]      for k, v in all_results.items()},
+    plot_metric("nuclear_norm",
+                {k: v["nuclear_norm"]      for k, v in all_results.items()},
                 args.save_dir, ylabel="Nuclear Norm ||Z||_*")
-    plot_metric("nuclear_norm_norm", {k: v["nuclear_norm_norm"] for k, v in all_results.items()},
+    plot_metric("nuclear_norm_norm",
+                {k: v["nuclear_norm_norm"] for k, v in all_results.items()},
                 args.save_dir, ylabel="Nuclear Norm / sqrt(N*D)")
-    plot_metric("effective_rank",    {k: v["effective_rank"]    for k, v in all_results.items()},
+    plot_metric("effective_rank",
+                {k: v["effective_rank"]    for k, v in all_results.items()},
                 args.save_dir, ylabel="Effective Rank")
-    plot_metric("matrix_entropy",    {k: v["matrix_entropy"]    for k, v in all_results.items()},
+    plot_metric("matrix_entropy",
+                {k: v["matrix_entropy"]    for k, v in all_results.items()},
                 args.save_dir, ylabel="Matrix Entropy (α=1)")
-    plot_metric("curvature",         {k: v["curvature"]         for k, v in all_results.items()},
+    plot_metric("curvature",
+                {k: v["curvature"]         for k, v in all_results.items()},
                 args.save_dir, ylabel="Curvature (rad)")
 
-    # ── Combined 1x5 figure ─────────────────────────────────────
+    # ── Combined 1x5 figure ───────────────────────────────────────
     plot_combined_1x5(all_results, args.save_dir)
 
     print(f"\nAll outputs in: {args.save_dir}")
