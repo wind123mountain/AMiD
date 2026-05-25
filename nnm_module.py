@@ -151,7 +151,7 @@ def nnm_loss_one_layer(
         M_t = torch.cat([C_t, H_t], dim=0) @ R
         nn_t = (nuclear_norm_ns(M_t, ns_iters) / scale).detach()
 
-    return lw * (torch.log(nn_s + 1e-8) - math.log(nn_t.item() + 1e-8)) ** 2
+    return lw * (math.log(nn_s + 1e-8) - math.log(nn_t.item() + 1e-8)) ** 2
     # return lw * F.l1_loss(nn_s, nn_t)
 
 
