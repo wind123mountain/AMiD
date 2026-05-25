@@ -333,7 +333,76 @@ def plot_combined_1x5(all_results: dict, save_dir: str):
 #  Data preparation
 # ════════════════════════════════════════════════════════════════
 
-def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "gsm8k"):
+def _format_chat_prompt(messages, tokenizer, response: str = None):
+    """
+    Convert a list-of-messages [{role, content}, ...] into a string the model
+    actually sees. Use the tokenizer's chat template if available, otherwise
+    concatenate raw contents.
+
+    If `response` is provided (non-empty string), it is appended as an
+    assistant turn so the formatted text becomes prompt + response — the
+    full sequence the student is trained on during KD.
+    """
+    if not isinstance(messages, list) or len(messages) == 0:
+        return None
+    # Keep only the input side (user/system); drop any pre-existing assistant
+    # turns so we can attach the canonical teacher response cleanly.
+    input_msgs = [
+        m for m in messages
+        if isinstance(m, dict) and m.get("role") in ("user", "system")
+    ]
+    if not input_msgs:
+        input_msgs = messages
+
+    has_response = isinstance(response, str) and len(response.strip()) > 0
+
+    if hasattr(tokenizer, "apply_chat_template"):
+        try:
+            if has_response:
+                full_msgs = input_msgs + [{"role": "assistant", "content": response}]
+                # add_generation_prompt=False — we already supplied the assistant turn.
+                return tokenizer.apply_chat_template(
+                    full_msgs, tokenize=False, add_generation_prompt=False,
+                )
+            return tokenizer.apply_chat_template(
+                input_msgs, tokenize=False, add_generation_prompt=True,
+            )
+        except Exception:
+            pass
+
+    # Fallback when no chat template is available.
+    text = "\n".join(
+        m.get("content", "") for m in input_msgs if isinstance(m, dict)
+    )
+    if has_response:
+        text = text + "\n" + response
+    return text
+
+
+def get_eval_prompts(tokenizer, n_samples: int = 50,
+                     dataset_name: str = "tsd_kd",
+                     input_mode: str = "prompt_response"):
+    """
+    Get evaluation prompts.
+
+    Args:
+        input_mode:
+            - "prompt"          : only the user/system prompt (ends with the
+                                  assistant generation marker). Matches what the
+                                  model sees at inference time before decoding.
+            - "prompt_response" : prompt + teacher's response (the full sequence
+                                  the student sees under KD teacher forcing).
+                                  Recommended for distillation analysis since
+                                  the KD loss is computed on response tokens.
+
+    Datasets:
+        - gsm8k    : openai/gsm8k                              (prompt only)
+        - math500  : HuggingFaceH4/MATH-500                    (prompt only)
+        - wikitext : Salesforce/wikitext                       (plain text)
+        - tsd_kd   : Minsang/TSD-KD-Qwen2.5-1.5B-Instruct-Gen
+                     columns: instruction, prompt[messages], response.
+                     Supports both input modes.
+    """
     if dataset_name == "wikitext":
         ds = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1", split="test")
         texts = [t for t in ds["text"] if len(t.strip()) > 100]
@@ -343,6 +412,59 @@ def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "gsm8k"
     elif dataset_name == "math500":
         ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
         texts = ds["problem"]
+
+    elif dataset_name == "tsd_kd":
+        repo = "Minsang/TSD-KD-Qwen2.5-1.5B-Instruct-Gen"
+        # KD generation datasets usually only ship a 'train' split.
+        try:
+            ds = load_dataset(repo, split="train")
+        except Exception:
+            ds_all = load_dataset(repo)
+            first_split = list(ds_all.keys())[0]
+            print(f"  'train' split not found, using '{first_split}'")
+            ds = ds_all[first_split]
+
+        cols = set(ds.column_names)
+        print(f"  Loaded {repo}  rows={len(ds)}  cols={ds.column_names}")
+        print(f"  input_mode = {input_mode!r}")
+
+        use_response = (input_mode == "prompt_response") and ("response" in cols)
+        if input_mode == "prompt_response" and "response" not in cols:
+            print("  WARNING: 'response' column missing — falling back to prompt-only.")
+
+        texts = []
+        # Preferred path: the chat-format 'prompt' column rendered with the
+        # tokenizer's chat template, optionally followed by 'response'.
+        if "prompt" in cols:
+            for row in ds:
+                p = row.get("prompt")
+                resp = row.get("response") if use_response else None
+                if isinstance(p, list):
+                    t = _format_chat_prompt(p, tokenizer, response=resp)
+                elif isinstance(p, str):
+                    t = p + ("\n" + resp if (use_response and resp) else "")
+                else:
+                    t = None
+                if t and len(t.strip()) > 20:
+                    texts.append(t)
+        # Fallback path: build from 'instruction' (+ optional 'response')
+        if len(texts) == 0 and "instruction" in cols:
+            for row in ds:
+                instr = row.get("instruction")
+                if not isinstance(instr, str) or len(instr.strip()) <= 20:
+                    continue
+                resp = row.get("response") if use_response else None
+                t = instr + ("\n" + resp if (use_response and resp) else "")
+                texts.append(t)
+
+        if len(texts) == 0:
+            raise RuntimeError(
+                f"Could not extract any usable prompts from {repo}. "
+                f"Columns were: {ds.column_names}"
+            )
+        print(f"  Extracted {len(texts)} sequences from {repo} "
+              f"({'prompt+response' if use_response else 'prompt-only'})")
+
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -380,7 +502,7 @@ def parse_args():
     # data
     p.add_argument("--n-samples",   type=int, default=100)
     p.add_argument("--max-len",     type=int, default=512)
-    p.add_argument("--dataset", type=str, default="math500",
+    p.add_argument("--dataset", type=str, default="tsd_kd",
                    choices=["wikitext", "gsm8k", "math500", "tsd_kd"])
 
     # output / device
