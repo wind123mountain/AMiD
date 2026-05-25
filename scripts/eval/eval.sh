@@ -3,7 +3,7 @@
 # hf download VoCuc/AMiD --include "qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4/7476/*" \
 #         --local-dir "results"
 
-hf download VoCuc/nnm-eval --include "layer_analysis/6_method/hidden_states/*" \
+hf download VoCuc/nnm-eval --include "layer_analysis/6_method_tsd/hidden_states/*" \
         --local-dir "results"
 
 TP=4

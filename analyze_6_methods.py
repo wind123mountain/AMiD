@@ -29,6 +29,7 @@ Usage:
         --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
         --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
         --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
+        --ckpt-tsd       Minsang/TSD-KD_Qwen2.5-1.5B \
         --save-hidden-states --dataset tsd_kd --batch-size 128 --max-len 512 
 """
 
@@ -66,6 +67,70 @@ MODEL_ORDER = list(MODEL_STYLE.keys())
 
 
 # ════════════════════════════════════════════════════════════════
+#  Metric computations (OPTIMIZED SVD -> COVARIANCE)
+# ════════════════════════════════════════════════════════════════
+
+@torch.no_grad()
+def compute_spectral_metrics(Z: torch.Tensor) -> tuple[float, float, float, float]:
+    """
+    Computes Nuclear Norm, Effective Rank, and Matrix Entropy in a single pass
+    using the Covariance Trick (Eigenvalues) instead of multiple SVDs.
+    Z must already be centered.
+    
+    Returns: nuc, nuc_n, eff_rank, entropy
+    """
+    N, D = Z.shape
+    if N < 2 or D < 2:
+        return 0.0, 0.0, 0.0, 0.0
+
+    try:
+        # Covariance Trick: Z @ Z.T (Faster than SVD)
+        if N <= D:
+            K = torch.matmul(Z, Z.mT)
+        else:
+            K = torch.matmul(Z.mT, Z)
+            
+        eigvals = torch.linalg.eigvalsh(K)
+        eigvals = F.relu(eigvals)  # Remove tiny negative numerical noise
+        eigvals = eigvals[eigvals > 1e-10]
+        
+        if eigvals.numel() == 0:
+            return 0.0, 0.0, 0.0, 0.0
+
+        # 1. Entropy
+        p_eig = eigvals / eigvals.sum()
+        entropy = (-p_eig * (p_eig + 1e-12).log()).sum().item()
+
+        # Singular Values (sqrt of eigenvalues) for the other metrics
+        S = torch.sqrt(eigvals)
+        sum_S = S.sum()
+
+        # 2. Nuclear Norm
+        nuc = sum_S.item()
+        nuc_n = nuc / math.sqrt(N * D)
+
+        # 3. Effective Rank
+        p_S = S / sum_S
+        H_S = -(p_S * (p_S + 1e-12).log()).sum().item()
+        eff_rank = math.exp(H_S)
+
+        return nuc, nuc_n, eff_rank, entropy
+    except Exception:
+        return 0.0, 0.0, 0.0, 0.0
+
+
+@torch.no_grad()
+def curvature(Z: torch.Tensor) -> float:
+    """Mean arccos cosine between consecutive token diff vectors."""
+    if Z.shape[0] < 3:
+        return 0.0
+    v = Z[1:] - Z[:-1]
+    # Optimized with backend C++ F.cosine_similarity
+    cos = F.cosine_similarity(v[1:], v[:-1], dim=-1).clamp(-1 + 1e-7, 1 - 1e-7)
+    return torch.arccos(cos).mean().item()
+
+
+# ════════════════════════════════════════════════════════════════
 #  Shared helper
 # ════════════════════════════════════════════════════════════════
 
@@ -85,94 +150,20 @@ def _subsample(Z: torch.Tensor, max_n: int = 512) -> torch.Tensor:
 def _compute_metrics_for_Z(Z_raw: torch.Tensor) -> dict:
     """
     Compute all 5 metrics for a single [T, D] float32 tensor.
-
-    Z_raw  — raw (uncentered) token representations for one sample at one layer.
-
-    Centering strategy:
-        • nuclear_norm, effective_rank, matrix_entropy — need centered Z so that
-          singular values reflect variance around the mean, not the mean itself.
-          Centering is done once here and shared by all three.
-        • curvature — measures angles between consecutive *difference* vectors
-          (Z[i+1] - Z[i]); centering has no effect on differences, so Z_sub
-          (uncentered) is passed directly.
     """
     Z_sub = _subsample(Z_raw)                          # [min(T,512), D]
-    Z     = Z_sub - Z_sub.mean(dim=0, keepdim=True)   # centered, shared
+    Z     = Z_sub - Z_sub.mean(dim=0, keepdim=True)    # centered, shared
 
-    nuc, nuc_n = nuclear_norm(Z)
+    # TỐI ƯU: Gộp tính 3 metrics chung 1 lần chạy Eigenvalues (nhanh hơn 3 lần SVD)
+    nuc, nuc_n, eff_rank, entropy = compute_spectral_metrics(Z)
+
     return {
         "nuclear_norm":      nuc,
         "nuclear_norm_norm": nuc_n,
-        "effective_rank":    effective_rank(Z),
-        "matrix_entropy":    matrix_entropy_alpha1(Z),
+        "effective_rank":    eff_rank,
+        "matrix_entropy":    entropy,
         "curvature":         curvature(Z_sub),          # uncentered intentionally
     }
-
-
-# ════════════════════════════════════════════════════════════════
-#  Metric computations
-#  All functions receive an already-centered, already-subsampled Z
-#  (except curvature which receives uncentered Z_sub).
-# ════════════════════════════════════════════════════════════════
-
-@torch.no_grad()
-def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
-    """||Z||_* and ||Z||_* / sqrt(N*D).  Z must already be centered."""
-    if Z.shape[0] < 2 or Z.shape[1] < 2:
-        return 0.0, 0.0
-    try:
-        S = torch.linalg.svdvals(Z)
-        nuc = S.sum().item()
-        nuc_n = nuc / math.sqrt(Z.shape[0] * Z.shape[1])
-        return nuc, nuc_n
-    except Exception:
-        return 0.0, 0.0
-
-
-@torch.no_grad()
-def effective_rank(Z: torch.Tensor) -> float:
-    """exp(H(p)), p_i = σ_i / Σσ_j.  Z must already be centered."""
-    if Z.shape[0] < 2 or Z.shape[1] < 2:
-        return 0.0
-    try:
-        S = torch.linalg.svdvals(Z)
-        S = S[S > 1e-10]
-        if S.numel() == 0:
-            return 0.0
-        p = S / S.sum()
-        H = -(p * (p + 1e-12).log()).sum().item()
-        return math.exp(H)
-    except Exception:
-        return 0.0
-
-
-@torch.no_grad()
-def matrix_entropy_alpha1(Z: torch.Tensor) -> float:
-    """Von Neumann entropy on Gram K = Z Z^T.  Z must already be centered."""
-    if Z.shape[0] < 2:
-        return 0.0
-    try:
-        S = torch.linalg.svdvals(Z)
-        eig = S ** 2
-        eig = eig[eig > 1e-10]
-        if eig.numel() == 0:
-            return 0.0
-        p = eig / eig.sum()
-        return (-p * (p + 1e-12).log()).sum().item()
-    except Exception:
-        return 0.0
-
-
-@torch.no_grad()
-def curvature(Z: torch.Tensor) -> float:
-    """Mean arccos cosine between consecutive token diff vectors.
-    Z should NOT be centered (centering does not affect differences)."""
-    if Z.shape[0] < 3:
-        return 0.0
-    v = Z[1:] - Z[:-1]
-    v_norm = F.normalize(v, dim=-1)
-    cos = (v_norm[1:] * v_norm[:-1]).sum(-1).clamp(-1 + 1e-7, 1 - 1e-7)
-    return torch.arccos(cos).mean().item()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -191,21 +182,6 @@ def compute_layer_metrics(
 ) -> dict:
     """
     Return dict[metric] -> list of (n_layers + 1) averaged values.
-
-    Processes prompts in batches of `batch_size`.  Each batch is tokenized
-    with right-padding; after the forward pass the attention mask is used to
-    strip pad tokens before computing metrics, so each sample only contributes
-    its real tokens to the statistics.
-
-    Args:
-        model       : HuggingFace CausalLM, already on `device`.
-        tokenizer   : corresponding tokenizer.
-        prompts     : list of raw text strings.
-        device      : torch device string, e.g. "cuda:0".
-        max_len     : maximum token length per sample (truncation).
-        batch_size  : number of prompts per forward pass.
-        save_hs_dir : if given, saves per-sample hidden states as .pt files
-                      with shape [n_layers+1, real_len, D] (no padding).
     """
     model.eval()
     n_layers = model.config.num_hidden_layers
@@ -241,8 +217,6 @@ def compute_layer_metrics(
         # Move masks to CPU once — used for unpadding every layer/sample.
         masks = enc["attention_mask"].bool()  # [B, T_pad]
 
-        print("encode done!")
-
         for b_idx in range(len(batch)):
             real_len = masks[b_idx].sum().item()
             if real_len < 5:
@@ -254,11 +228,12 @@ def compute_layer_metrics(
             for lid in range(n_total):
                 # Unpad: keep only real tokens → [real_len, D]
                 Z_raw = out.hidden_states[lid][b_idx]  # [T_pad, D]
-                Z_raw = Z_raw[masks[b_idx]].float()          # [real_len, D]
+                Z_raw = Z_raw[masks[b_idx]].float()    # [real_len, D]
 
                 if save_hs_dir:
                     sample_hidden_states.append(Z_raw.clone())
 
+                # Chạy metrics tối ưu ở đây
                 m = _compute_metrics_for_Z(Z_raw)
                 for k in metric_keys:
                     metrics[k][lid].append(m[k])
@@ -280,7 +255,6 @@ def compute_layer_metrics(
         k: [float(np.mean(v)) if v else 0.0 for v in vals]
         for k, vals in metrics.items()
     }
-
 
 # ════════════════════════════════════════════════════════════════
 #  Model loading
@@ -538,7 +512,7 @@ def parse_args():
     p.add_argument("--student-id",  type=str, default="Qwen/Qwen2.5-1.5B-Instruct")
 
     # distilled checkpoints
-    p.add_argument("--ckpt-distillm", type=str,
+    p.add_argument("--ckpt-tsd", type=str,
                    default="results/PLACEHOLDER_distillm/checkpoint",
                    help="Path to DistiLLM checkpoint.")
     p.add_argument("--ckpt-amid",     type=str,
@@ -617,7 +591,7 @@ def main():
     model_configs = [
         ("Teacher",      args.teacher_id,    args.teacher_id,  args.skip_teacher),
         ("Student-base", args.student_id,    args.student_id,  args.skip_student_base),
-        # ("DistiLLM",   args.ckpt_distillm, args.student_id,  args.skip_distillm),
+        ("TSD",          args.ckpt_tsd,      args.student_id,  args.skip_distillm),
         ("AMID",         args.ckpt_amid,     args.student_id,  args.skip_amid),
         ("CSD",          args.ckpt_csd,      args.student_id,  args.skip_csd),
         ("NNM (ours)",   args.ckpt_nnm,      args.student_id,  args.skip_nnm),
