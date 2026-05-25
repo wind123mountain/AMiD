@@ -25,12 +25,12 @@ Usage:
     python analyze_layers.py
     python analyze_layers.py --n-samples 100 --max-len 256 --batch-size 8
     python analyze_layers.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
-    python analyze_6_methods.py --device cuda:1 --n-samples 100 --save-dir ./layer_analysis/6_method_tsd \
+    python analyze_6_methods.py --device cuda:1 --n-samples 100 --save-dir ./layer_analysis/6_method_tsd_2 \
         --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
         --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
         --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
         --ckpt-tsd       Minsang/TSD-KD_Qwen2.5-1.5B \
-        --save-hidden-states --dataset tsd_kd --batch-size 128 --max-len 512 
+        --save-hidden-states --dataset tsd_kd --batch-size 128 --max-len 256 
 """
 
 import os
@@ -607,9 +607,6 @@ def main():
             continue
 
         is_base = label in ("Teacher", "Student-base")
-        if not is_base and not _ckpt_available(path):
-            print(f"  ⏭  skipped (checkpoint not found / placeholder: {path})")
-            continue
 
         save_hs_dir = None
         if args.save_hidden_states:
