@@ -24,11 +24,12 @@ Reference:
 Usage:
     python analyze_layers.py
     python analyze_layers.py --n-samples 100 --max-len 256
-    python analyze_layers.py \\
-        --ckpt-distillm  results/distillm/X \\
-        --ckpt-amid      results/amid/X \\
-        --ckpt-csd       results/csd/X \\
-        --ckpt-nnm       results/nnm/X
+    python analyze.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method
+    python analyze_6_methods.py --device cuda:7 --n-samples 100 --save-dir ./layer_analysis/6_method \
+        --ckpt-amid      results/qwen2.5-1.5B-Instruct#amid/ab_pr_0.5_0.5_4_1e-4 \
+        --ckpt-csd       results/qwen2.5-1.5B-Instruct#csd/ab_pr_0.5_0.5_8_1e-4 \
+        --ckpt-nnm       results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_new0.2_K128_L4_epoch2_lr1e-4_kdr1.0 \
+        --save-hidden-states
 """
 
 import os
@@ -70,7 +71,7 @@ MODEL_ORDER = list(MODEL_STYLE.keys())   # plot legend order
 
 @torch.no_grad()
 def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
-    """||Z||_*  and  ||Z||_* / sqrt(N*D)."""
+    """||Z||_* and  ||Z||_* / sqrt(N*D)."""
     Z = Z.float()
     if Z.shape[0] < 2 or Z.shape[1] < 2:
         return 0.0, 0.0
@@ -78,6 +79,7 @@ def nuclear_norm(Z: torch.Tensor) -> tuple[float, float]:
         if Z.shape[0] > 512:
             idx = torch.randperm(Z.shape[0])[:512]
             Z = Z[idx]
+        Z = Z - Z.mean(dim=0, keepdim=True)
         S = torch.linalg.svdvals(Z)
         nuc = S.sum().item()
         nuc_n = nuc / math.sqrt(Z.shape[0] * Z.shape[1])
@@ -145,8 +147,8 @@ def curvature(Z: torch.Tensor) -> float:
 # ════════════════════════════════════════════════════════════════
 
 @torch.no_grad()
-def compute_layer_metrics(model, tokenizer, prompts, device, max_len=256):
-    """Return dict[metric] -> list of (n_layers + 1) averaged values."""
+def compute_layer_metrics(model, tokenizer, prompts, device, max_len=256, save_hs_dir=None):
+    """Return dict[metric] -> list of (n_layers + 1) averaged values. Optionally save hidden states."""
     model.eval()
     n_layers = model.config.num_hidden_layers
     n_total  = n_layers + 1
@@ -159,7 +161,10 @@ def compute_layer_metrics(model, tokenizer, prompts, device, max_len=256):
         "curvature":         [[] for _ in range(n_total)],
     }
 
-    for prompt in tqdm(prompts, desc="  layers", leave=False):
+    if save_hs_dir:
+        os.makedirs(save_hs_dir, exist_ok=True)
+
+    for sample_idx, prompt in enumerate(tqdm(prompts, desc="  layers", leave=False)):
         enc = tokenizer(
             prompt, return_tensors="pt", truncation=True, max_length=max_len,
         ).to(device)
@@ -167,15 +172,33 @@ def compute_layer_metrics(model, tokenizer, prompts, device, max_len=256):
             continue
 
         out = model(**enc, output_hidden_states=True, return_dict=True)
+        
+        sample_hidden_states = []
 
         for lid in range(n_total):
-            Z = out.hidden_states[lid].squeeze(0).float().cpu()
+            # Extract and detach representation
+            Z_raw = out.hidden_states[lid].squeeze(0).cpu()
+            
+            # Save raw representation if directory is provided (keep in original dtype to save space)
+            if save_hs_dir:
+                sample_hidden_states.append(Z_raw.clone())
+                
+            # Convert to float for metric computations
+            Z = Z_raw.float()
+            
             nuc, nuc_n = nuclear_norm(Z)
             metrics["nuclear_norm"][lid].append(nuc)
             metrics["nuclear_norm_norm"][lid].append(nuc_n)
             metrics["effective_rank"][lid].append(effective_rank(Z))
             metrics["matrix_entropy"][lid].append(matrix_entropy_alpha1(Z))
             metrics["curvature"][lid].append(curvature(Z))
+
+        # Save hidden states to disk for this specific prompt
+        if save_hs_dir:
+            # Stack into shape: [num_layers + 1, seq_len, hidden_dim]
+            stacked_hs = torch.stack(sample_hidden_states)
+            out_path = os.path.join(save_hs_dir, f"sample_{sample_idx}.pt")
+            torch.save(stacked_hs, out_path)
 
         del out
         torch.cuda.empty_cache()
@@ -317,6 +340,9 @@ def get_eval_prompts(tokenizer, n_samples: int = 50, dataset_name: str = "gsm8k"
     elif dataset_name == "gsm8k":
         ds = load_dataset("openai/gsm8k", "main", split="test")
         texts = ds["question"]
+    elif dataset_name == "math500":
+        ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
+        texts = ds["problem"]
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -354,12 +380,16 @@ def parse_args():
     # data
     p.add_argument("--n-samples",   type=int, default=100)
     p.add_argument("--max-len",     type=int, default=512)
-    p.add_argument("--dataset",     type=str, default="gsm8k",
-                   choices=["wikitext", "gsm8k"])
+    p.add_argument("--dataset", type=str, default="math500",
+                   choices=["wikitext", "gsm8k", "math500", "tsd_kd"])
 
     # output / device
     p.add_argument("--save-dir",    type=str, default="./layer_analysis")
     p.add_argument("--device",      type=str, default="cuda:0")
+
+    # save states
+    p.add_argument("--save-hidden-states", action="store_true", 
+                   help="Save the raw hidden states to disk for later reuse.")
 
     # skip flags — useful while ckpts aren't ready yet
     p.add_argument("--skip-teacher",      action="store_true")
@@ -390,6 +420,8 @@ def main():
     print(f"  Layer-wise representation analysis (6 models)")
     print(f"  Device: {device}")
     print(f"  Dataset: {args.dataset}, n_samples={args.n_samples}, max_len={args.max_len}")
+    if args.save_hidden_states:
+        print(f"  [!] Will save hidden states to disk.")
     print(f"{'='*70}\n")
 
     # ── Tokenizer (shared default — Qwen family) ─────────────────
@@ -406,7 +438,7 @@ def main():
     model_configs = [
         ("Teacher",      args.teacher_id,    args.teacher_id,  args.skip_teacher),
         ("Student-base", args.student_id,    args.student_id,  args.skip_student_base),
-        ("DistiLLM",     args.ckpt_distillm, args.student_id,  args.skip_distillm),
+        # ("DistiLLM",     args.ckpt_distillm, args.student_id,  args.skip_distillm),
         ("AMID",         args.ckpt_amid,     args.student_id,  args.skip_amid),
         ("CSD",          args.ckpt_csd,      args.student_id,  args.skip_csd),
         ("NNM (ours)",   args.ckpt_nnm,      args.student_id,  args.skip_nnm),
@@ -426,12 +458,18 @@ def main():
         if not is_base and not _ckpt_available(path):
             print(f"  ⏭  skipped (checkpoint not found / placeholder: {path})")
             continue
+            
+        # Determine directory to save hidden states for this specific model
+        save_hs_dir = None
+        if args.save_hidden_states:
+            safe_label = label.replace(" ", "_").replace("(", "").replace(")", "").lower()
+            save_hs_dir = os.path.join(args.save_dir, "hidden_states", safe_label)
 
         try:
             model = load_model_safely(path, device)
             tok   = tokenizer if is_base else get_tokenizer_for(path, tok_fallback)
             all_results[label] = compute_layer_metrics(
-                model, tok, prompts, device, args.max_len,
+                model, tok, prompts, device, args.max_len, save_hs_dir=save_hs_dir
             )
             del model
             torch.cuda.empty_cache()
