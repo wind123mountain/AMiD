@@ -349,13 +349,16 @@ def finetune(args, tokenizer: AutoTokenizer,
                     teacher_model.eval()
                     teacher_outputs = teacher_model(**model_batch, output_hidden_states=True, use_cache=False)
                     teacher_logits = teacher_outputs.logits
+                    t_hidden = teacher_outputs.hidden_states
                 distil_loss = get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch)
 
-                
                 feature_loss = 0
                 for s_l, t_l, projector in zip(s_mid, t_mid, projectors):
-                    s_projed = projector(s_l)
-                    feature_loss += F.mse_loss(s_projed, t_l)
+                    s_feat = s_hidden[s_l] 
+                    t_feat = t_hidden[t_l] 
+                    
+                    s_projed = projector(s_feat)
+                    feature_loss += F.mse_loss(s_projed, t_feat)
                 feature_loss = feature_loss / len(s_mid)
 
                 loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * (distil_loss + feature_loss)
