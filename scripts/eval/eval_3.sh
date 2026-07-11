@@ -96,7 +96,7 @@ run_eval() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0"
+# bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0"
 
 
 CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
@@ -108,7 +108,7 @@ OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
 
 mkdir -p "$OUTPUT_PATH"
 
-python aggregate.py -i "${OUT_DIR}/results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+python aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
                     -o "${OUTPUT_PATH}/bnmm.json"
 
 echo "Eval Done!"
