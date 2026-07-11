@@ -1,7 +1,7 @@
 #! /bin/bash
 
-GPUS=(0 1 2 3)
-export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
+GPUS=(0)
+# export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
 MASTER_PORT=66$(($RANDOM%90+10))
@@ -24,9 +24,9 @@ TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
 # data
 DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
 # hp
-BATCH_SIZE=8
+BATCH_SIZE=2
 LR=1e-4
-GRAD_ACC=2
+GRAD_ACC=16
 EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1025
@@ -73,7 +73,7 @@ OPTS+=" --max-prompt-length 512"
 OPTS+=" --do-train"
 OPTS+=" --do-valid"
 OPTS+=" --eval-gen"
-OPTS+=" --save-interval -1"
+OPTS+=" --save-interval 1000"
 OPTS+=" --eval-interval -1"
 OPTS+=" --log-interval 10"
 OPTS+=" --mid-log-num -1"
@@ -112,7 +112,7 @@ export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./f_base_finetune.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./f_base_finetune_2.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"
