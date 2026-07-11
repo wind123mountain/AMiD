@@ -257,8 +257,8 @@ def finetune(args, tokenizer: AutoTokenizer,
     total_loss, total_distil_loss, total_time = 0.0, 0.0, 0.0
 
     adaptive_threshold = args.init_threshold if "adaptive" in args.type else None
-    # prev_avg_loss, _ = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
-    prev_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
+    # prev_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
+    prev_avg_loss = 0
     replay_buffer = ReplayBuffer(args)
 
     student_captured_hidden = []
@@ -345,11 +345,13 @@ def finetune(args, tokenizer: AutoTokenizer,
                 lm_loss = loss_func(logits.float().view(-1, logits.shape[-1]), no_model_batch["label"].view(-1))
 
             if teacher_model is not None:
+                for k in model_batch:
+                    model_batch[k] = model_batch[k].to(teacher_model.device)
                 with torch.no_grad():
                     teacher_model.eval()
                     teacher_outputs = teacher_model(**model_batch, output_hidden_states=True, use_cache=False)
-                    teacher_logits = teacher_outputs.logits
-                    t_hidden = teacher_outputs.hidden_states
+                    teacher_logits = teacher_outputs.logits.to(device)
+                    t_hidden = torch.stack(list(teacher_outputs.hidden_states)).to(device)
                 distil_loss = get_distil_loss(args, teacher_logits, no_model_batch, logits, epoch)
 
                 feature_loss = 0
@@ -645,13 +647,13 @@ def main():
         if args.eval_interval == -1:
             args.eval_interval = args.train_iters_per_epoch
 
-    model = get_model(args, device)
+    model = get_model(args, "cuda:0")
 
     if args.teacher_model_type is None:
         args.teacher_model_type = args.model_type
 
     if args.teacher_model_path is not None:
-        teacher_model = get_teacher_model(args, device)
+        teacher_model = get_teacher_model(args, "cuda:1")
         model.resize_token_embeddings(teacher_model.config.vocab_size)
     else:
         teacher_model = None

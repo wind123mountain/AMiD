@@ -108,7 +108,7 @@ OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
 
 mkdir -p "$OUTPUT_PATH"
 
-python aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
+python scripts/eval/aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
                     -o "${OUTPUT_PATH}/feature_summary.json"
 
 echo "Eval Done!"
