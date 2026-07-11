@@ -7,7 +7,7 @@ BASE_PATH=${1:-"results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj"}
 
 echo "🔍 Đang tìm checkpoint trong: $BASE_PATH"
 
-LATEST_CKPT=$(find "$BASE_PATH" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+LATEST_CKPT=$(find "$BASE_PATH" -mindepth 1 -maxdepth 1 -type d -regex "$BASE_PATH/[0-9]+" | sort -V | tail -n 1)
 
 # Kiểm tra xem có tìm thấy thư mục nào không
 if [ -z "$LATEST_CKPT" ]; then

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-TP=4
+TP=2
 
 LOG_DIR="outputs/eval_results/logs"
 OUT_DIR="outputs/eval_results/vllm"
@@ -96,27 +96,19 @@ run_eval() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj"
-bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#feature"
+bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0"
 
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-1.5B-Instruct/nnm_no_train_proj" \
-    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
-
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
+CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
     "qwen2.5-1.5B-Instruct/feature" \
-    "pretrained=results/qwen2.5-1.5B-Instruct#feature,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
 
 
 OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
 
 mkdir -p "$OUTPUT_PATH"
 
-python aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/nnm_no_train_proj" \
-                    -o "${OUTPUT_PATH}/nnm_no_train_proj_summary.json"
-
-python aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
-                    -o "${OUTPUT_PATH}/feature_summary.json"
+python aggregate.py -i "${OUT_DIR}/results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+                    -o "${OUTPUT_PATH}/bnmm.json"
 
 echo "Eval Done!"
