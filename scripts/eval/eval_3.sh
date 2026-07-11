@@ -45,8 +45,8 @@ run_eval() {
         --batch_size auto
         --log_samples
         --output_path "${OUT}"
-        # --apply_chat_template
-        --gen_kwargs "max_new_tokens=5120,temperature=0.0"
+        --apply_chat_template
+        --gen_kwargs "max_new_tokens=5120"
     )
 
     # Thêm BASE_ARGS_MATH — không có --fewshot_as_multiturn
@@ -58,7 +58,7 @@ run_eval() {
         # --fewshot_as_multiturn
         --log_samples
         --output_path "${OUT}"
-        --gen_kwargs "max_new_tokens=5120,temperature=0.0"
+        --gen_kwargs "max_new_tokens=5120"
     )
 
     {
@@ -67,25 +67,25 @@ run_eval() {
         echo "Start: $(date)"
         echo "=========================================="
 
-        echo ">>> [1/10] GSM8K"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k
+        # echo ">>> [1/10] GSM8K"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm8k
 
         echo ">>> [2/10] MATH (Minerva format)"
-        lm_eval "${BASE_ARGS_MATH[@]}" \
+        lm_eval "${BASE_ARGS[@]}" \
             --tasks minerva_math \
             --num_fewshot 4
 
-        echo ">>> [3/10] MMLU-STEM"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
+        # echo ">>> [3/10] MMLU-STEM"
+        # lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
 
-        echo ">>> [4/10] SciQ"
-        lm_eval "${BASE_ARGS[@]}" --tasks sciq
+        # echo ">>> [4/10] SciQ"
+        # lm_eval "${BASE_ARGS[@]}" --tasks sciq
 
         echo ">>> [5/10] MBPP"
         lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --confirm_run_unsafe_code  --num_fewshot 3
 
-        echo ">>> [6/10] GSM-Plus (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus
+        # echo ">>> [6/10] GSM-Plus (5-shot)"
+        # lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus
 
 
         echo "=========================================="
@@ -99,16 +99,16 @@ run_eval() {
 # bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0"
 
 
-# CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
-#     "qwen2.5-1.5B-Instruct/feature" \
-#     "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+CUDA_VISIBLE_DEVICES=0,1 HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-1.5B-Instruct/feature" \
+    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/bnmm0.2_K128_L4_epoch2_lr1e-4_kdr1.0,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
 
 
-OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
+# OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
 
-mkdir -p "$OUTPUT_PATH"
+# mkdir -p "$OUTPUT_PATH"
 
-python scripts/eval/aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
-                    -o "${OUTPUT_PATH}/bnmm.json"
+# python scripts/eval/aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
+#                     -o "${OUTPUT_PATH}/bnmm.json"
 
 echo "Eval Done!"

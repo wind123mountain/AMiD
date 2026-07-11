@@ -363,7 +363,7 @@ def finetune(args, tokenizer: AutoTokenizer,
                     feature_loss += F.mse_loss(s_projed, t_feat)
                 feature_loss = feature_loss / len(s_mid)
 
-                loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * (distil_loss + feature_loss)
+                loss = (1 - args.kd_ratio) * lm_loss + args.kd_ratio * (distil_loss + 0.1 * feature_loss)
             else:
                 loss = lm_loss
 
