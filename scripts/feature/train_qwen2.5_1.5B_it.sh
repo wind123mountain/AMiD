@@ -1,7 +1,7 @@
 #! /bin/bash
-VARIANT="${1:?usage: bash $0 <nnm|bnm|bnmm|erank>}"
-GPUS=(0)
-# export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
+
+GPUS=(2 3)
+export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
 
 MASTER_ADDR=localhost
 MASTER_PORT=66$(($RANDOM%90+10))
@@ -15,37 +15,31 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --master_addr $MASTER_ADDR \
                   --master_port $MASTER_PORT"
 
-# ───── model ─────
+# model
 BASE_PATH=.
 CKPT_NAME="qwen2.5-1.5B-Instruct"
 CKPT="Qwen/Qwen2.5-1.5B-Instruct"
 TEACHER_CKPT_NAME="qwen2.5-14B-Instruct"
 TEACHER_CKPT="Qwen/Qwen2.5-14B-Instruct"
-
-# ───── data ─────
+# data
 DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen2.5-14B-Instruct/"
-
-# ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
-BATCH_SIZE=2
+# hp
+BATCH_SIZE=8
 LR=1e-4
-GRAD_ACC=16
+GRAD_ACC=2
 EVAL_BATCH_SIZE=16
+# length
 MAX_LENGTH=1025
+# seed
 SEED=10
-EPOCHS=2
-KD_R=1.0
 
-# ───── SFKL ─────
-SKEW_ALPHA=0.1
+AMID_DIV_NAME="ab"
+AMID_DIV_ORDER="pr"
+AMID_ALPHA=0.5
+AMID_LAM=0.5
 
-# ───── NNM (H200 thoải mái — full config) ─────
-NNM_RATIO=0.2
-NNM_K=128
-NNM_N_LAYERS=4
-NNM_D_PRIME=256
-NNM_CENTROID_BATCHES=1
+SAVE_PATH="./results/${CKPT_NAME}#feature"
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/${VARIANT}${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
 
 
 OPTS=""
@@ -60,7 +54,7 @@ OPTS+=" --n-gpu ${GPUS_PER_NODE}"
 # data
 OPTS+=" --data-dir ${DATA_DIR}"
 OPTS+=" --num-workers 4"
-OPTS+=" --dev-num 4"
+OPTS+=" --dev-num -1"
 # hp
 OPTS+=" --lr ${LR}"
 OPTS+=" --batch-size ${BATCH_SIZE}"
@@ -70,8 +64,8 @@ OPTS+=" --warmup-iters 0"
 OPTS+=" --lr-decay-style cosine"
 OPTS+=" --weight-decay 1e-2"
 OPTS+=" --clip-grad 1.0"
-OPTS+=" --epochs ${EPOCHS}"
-OPTS+=" --kd-ratio ${KD_R}"
+OPTS+=" --epochs 3"
+OPTS+=" --kd-ratio 1.0"
 # length
 OPTS+=" --max-length ${MAX_LENGTH}"
 OPTS+=" --max-prompt-length 512"
@@ -88,52 +82,37 @@ OPTS+=" --save ${SAVE_PATH}"
 OPTS+=" --seed ${SEED}"
 # deepspeed
 OPTS+=" --deepspeed"
-OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero0_bf16.json"
-# ───── type: adaptive + SFKL ─────
-# OPTS+=" --type adaptive-sfkl"
-OPTS+=" --type sfkl"
-OPTS+=" --skew-alpha ${SKEW_ALPHA}"
+OPTS+=" --deepspeed_config ./configs/deepspeed/ds_config_zero0_bf16.json" # From MiniLLM to avoid OVERFLOW
+# type
+OPTS+=" --type fkl"
 # gen
 OPTS+=" --do-sample"
 OPTS+=" --top-k 0"
 OPTS+=" --top-p 1.0"
 OPTS+=" --temperature 1.0"
-# distillm: student-gen + adaptive threshold + replay buffer
+# distillm
 OPTS+=" --student-gen"
 OPTS+=" --gen-num-beams 1"
 OPTS+=" --gen-top-p 1.0"
 OPTS+=" --init-threshold 0.0"
 OPTS+=" --loss-eps 0.1"
 OPTS+=" --capacity 1000"
-OPTS+=" --replay-ratio decreasing"
-OPTS+=" --mixed-alpha 0.5"
-# ───── NNM (default ON; use --no-nnm to disable) ─────
-OPTS+=" --nnm"
-OPTS+=" --nnm-ratio ${NNM_RATIO}"
-OPTS+=" --nnm-K ${NNM_K}"
-OPTS+=" --nnm-n-layers ${NNM_N_LAYERS}"
-OPTS+=" --nnm-d-prime ${NNM_D_PRIME}"
-OPTS+=" --nnm-centroid-batches ${NNM_CENTROID_BATCHES}"
-OPTS+=" --nnm-eta 0.05"
-OPTS+=" --nnm-T-dead 50"
-OPTS+=" --nnm-ns-iters 5"
-OPTS+=" --nnm-warmup-steps 10"
-OPTS+=" --nnm-ramp-steps 200"
-OPTS+=" --loss-variant ${VARIANT}" 
-# ───── PEFT / LoRA ─────
+# amid
+OPTS+=" --amid-div-name ${AMID_DIV_NAME}"
+OPTS+=" --amid-div-order ${AMID_DIV_ORDER}"
+OPTS+=" --amid-alpha ${AMID_ALPHA}"
+OPTS+=" --amid-lam ${AMID_LAM}"
+
 OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 32"
-OPTS+=" --peft-lora-alpha 64"
+OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-alpha 128"
 OPTS+=" --peft-lora-dropout 0.05"
-
-OPTS+=" --delta-threshold 0.03"
-
 
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True
 export TF_CPP_MIN_LOG_LEVEL=3
 export PYTHONPATH=.
-CMD="torchrun ${DISTRIBUTED_ARGS} ./finetune_new.py ${OPTS} $@"
+CMD="torchrun ${DISTRIBUTED_ARGS} ./f_base_finetune.py ${OPTS} $@"
 
 echo ${CMD}
 echo "PYTHONPATH=${PYTHONPATH}"

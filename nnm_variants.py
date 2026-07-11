@@ -88,8 +88,8 @@ def bnmm_loss_one_layer(
     H_t      = H_t.float().detach()
     R        = R.float()
 
-    H_s_norm = F.normalize(H_s_proj, dim=-1)
-    H_t_norm = F.normalize(H_t,      dim=-1)
+    H_s_norm = H_s_proj
+    H_t_norm = H_t.to(H_s_proj.device)
 
     M_s = H_s_norm @ R
     m, n = M_s.shape
@@ -101,7 +101,7 @@ def bnmm_loss_one_layer(
         nn_t = (nuclear_norm_ns(M_t, ns_iters) / scale).detach()
 
     # Linear gap: drives nn_s up toward nn_t
-    return lw * (nn_t - nn_s)
+    return lw * (torch.log(nn_s + 1e-8) - torch.log(nn_t + 1e-8)) ** 2
 
 
 # ═══════════════════════════════════════════════════════════════

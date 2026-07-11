@@ -179,3 +179,4 @@ cache-*
 uv.lock
 data/
 processed_data/
+layer_analysis/

@@ -24,11 +24,11 @@ Directory layout expected (mirrors what analyze_layers.py writes):
 Usage:
     python plot_entropy_dist.py --hs-root ./layer_analysis/6_method_tsd/hidden_states
     python plot_entropy_dist.py \
-        --hs-root   ./results/layer_analysis/6_method_tsd/hidden_states \
+        --hs-root   ./results/layer_analysis/6_method_tsd_2/hidden_states \
         --save-dir  ./results/layer_analysis/plots \
         --bins      100 \
         --alpha     0.55 \
-        --max-samples 200 --layers 1 5 10 13 16 19 22 25 28
+        --max-samples 200 --filename entropy_distributions.png --layers 1 5 10 13 16 19 22 25 28
 """
 
 import os
@@ -51,7 +51,7 @@ from tqdm import tqdm
 MODEL_STYLE = {
     "Teacher":      {"color": "#1f77b4", "label": "Teacher"},
     "Student-base": {"color": "#8c564b", "label": "Student-base"},
-    "DistiLLM":     {"color": "#ff7f0e", "label": "DistiLLM"},
+    "TSD-KD":     {"color": "#ff7f0e", "label": "DistiLLM"},
     "AMID":         {"color": "#9467bd", "label": "AMID"},
     "CSD":          {"color": "#e377c2", "label": "CSD"},
     "NNM (ours)":   {"color": "#2ca02c", "label": "NNM (ours)"},
@@ -62,7 +62,7 @@ MODEL_STYLE = {
 FOLDER_TO_LABEL = {
     "teacher":      "Teacher",
     "student_base": "Student-base",
-    "distillm":     "DistiLLM",
+    "tsd":     "TSD-KD",
     "amid":         "AMID",
     "csd":          "CSD",
     "nnm_ours":     "NNM (ours)",
