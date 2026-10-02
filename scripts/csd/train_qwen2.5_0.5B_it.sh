@@ -15,17 +15,16 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --master_addr $MASTER_ADDR \
                   --master_port $MASTER_PORT"
 
-# ───── model ─────
+# model
 BASE_PATH=.
-CKPT_NAME="gemma2-2b-it"
-CKPT="google/gemma-2-2b-it"
-TEACHER_CKPT_NAME="gemma2-9b-it"
-TEACHER_CKPT="google/gemma-2-9b-it"
-
-# ───── data ─────
-DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
-
-BATCH_SIZE=4            # per-GPU micro batch
+CKPT_NAME="qwen2.5-0.5B-it"
+CKPT="Qwen/Qwen2.5-0.5B-Instruct"
+TEACHER_CKPT_NAME="qwen3-4B-Instruct"
+TEACHER_CKPT="Qwen/Qwen3-4B-Instruct-2507"
+# data
+DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen3-4B-Instruct-2507/"
+# hp
+BATCH_SIZE=16            # per-GPU micro batch
 LR=1e-4
 EFF_BATCH=64            # effective batch
 DENOM=$((BATCH_SIZE * GPUS_PER_NODE * NNODES))
@@ -34,7 +33,7 @@ if (( EFF_BATCH % DENOM != 0 )); then
     exit 1
 fi
 GRAD_ACC=$((EFF_BATCH / DENOM))
-EVAL_BATCH_SIZE=16
+EVAL_BATCH_SIZE=64
 # length
 MAX_LENGTH=1025
 # seed
@@ -45,7 +44,7 @@ AMID_DIV_ORDER="pr"
 AMID_ALPHA=0.5
 AMID_LAM=0.5
 
-SAVE_PATH="./results/${CKPT_NAME}#csd/csd_${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#csd/${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
 
 
 
@@ -109,11 +108,6 @@ OPTS+=" --amid-div-name ${AMID_DIV_NAME}"
 OPTS+=" --amid-div-order ${AMID_DIV_ORDER}"
 OPTS+=" --amid-alpha ${AMID_ALPHA}"
 OPTS+=" --amid-lam ${AMID_LAM}"
-
-OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 16"
-OPTS+=" --peft-lora-alpha 32"
-OPTS+=" --peft-lora-dropout 0.05"
 
 export NCCL_DEBUG=""
 export WANDB_DISABLED=True

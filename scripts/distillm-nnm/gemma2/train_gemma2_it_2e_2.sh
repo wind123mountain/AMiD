@@ -1,7 +1,7 @@
 #! /bin/bash
 
-GPUS=(0 1 2 3)
-export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+IFS=',' read -ra GPUS <<< "$CUDA_VISIBLE_DEVICES"
 
 MASTER_ADDR=localhost
 MASTER_PORT=66$(($RANDOM%90+10))
@@ -25,10 +25,15 @@ TEACHER_CKPT="google/gemma-2-9b-it"
 # ───── data ─────
 DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
 
-# ───── hp (H200 141GB — tăng batch, giảm grad_acc cho throughput) ─────
-BATCH_SIZE=4
+BATCH_SIZE=4            # per-GPU micro batch
 LR=1e-4
-GRAD_ACC=2
+EFF_BATCH=64            # effective batch
+DENOM=$((BATCH_SIZE * GPUS_PER_NODE * NNODES))
+if (( EFF_BATCH % DENOM != 0 )); then
+    echo "ERROR: EFF_BATCH=$EFF_BATCH không chia hết cho BATCH_SIZE*GPUS*NNODES=$DENOM" >&2
+    exit 1
+fi
+GRAD_ACC=$((EFF_BATCH / DENOM))
 EVAL_BATCH_SIZE=32
 MAX_LENGTH=1025
 SEED=10
@@ -120,8 +125,8 @@ OPTS+=" --nnm-warmup-steps 100"
 OPTS+=" --nnm-ramp-steps 200"
 # ───── PEFT / LoRA ─────
 OPTS+=" --peft lora"
-OPTS+=" --peft-lora-r 32"
-OPTS+=" --peft-lora-alpha 64"
+OPTS+=" --peft-lora-r 16"
+OPTS+=" --peft-lora-alpha 32"
 OPTS+=" --peft-lora-dropout 0.05"
 
 OPTS+=" --delta-threshold 0.03"

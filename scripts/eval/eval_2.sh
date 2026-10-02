@@ -1,7 +1,9 @@
 #!/bin/bash
 
 
-TP=4
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+IFS=',' read -ra GPUS <<< "$CUDA_VISIBLE_DEVICES"
+DP=${#GPUS[@]}
 
 LOG_DIR="outputs/eval_results/logs"
 OUT_DIR="outputs/eval_results/vllm"
@@ -96,27 +98,38 @@ run_eval() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj"
-bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#feature"
+# bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj"
+# bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#feature"
 
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-1.5B-Instruct/nnm_no_train_proj" \
-    "pretrained=results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
-
-CUDA_VISIBLE_DEVICES=0,1,2,3 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-1.5B-Instruct/feature" \
-    "pretrained=results/qwen2.5-1.5B-Instruct#feature,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/ab_pr_0.5_0.5_8_1e-4/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
 
-OUTPUT_PATH="outputs/eval_results/final_summary/qwen2.5-1.5B-Instruct"
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
-mkdir -p "$OUTPUT_PATH"
 
-python scripts/eval/aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/nnm_no_train_proj" \
-                    -o "${OUTPUT_PATH}/nnm_no_train_proj_summary.json"
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "gemma-2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
-python scripts/eval/aggregate.py -i "${OUT_DIR}/qwen2.5-1.5B-Instruct/feature" \
-                    -o "${OUTPUT_PATH}/feature_summary.json"
+
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-0.5-it#csd/csd_ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen2.5-0.5-it#csd/ab_pr_0.5_0.5_8_1e-4/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-0.5-it/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=results/qwen2.5-0.5-it#amid/ab_pr_0.5_0.5_8_1e-4/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
+
+HF_ALLOW_CODE_EVAL=1 run_eval \
+    "qwen2.5-0.5-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=results/qwen2.5-0.5-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492,tensor_parallel_size=${TP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+
 
 echo "Eval Done!"

@@ -1,3 +1,4 @@
+import gc
 import time
 import os
 
@@ -324,6 +325,8 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
     adaptive_threshold = args.init_threshold if "adaptive" in args.type else None
     # prev_avg_loss, _ = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
     prev_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", 0, device, adaptive_threshold)
+    gc.collect()
+    torch.cuda.empty_cache()
     replay_buffer = ReplayBuffer(args)
 
     student_captured_hidden = []
@@ -551,12 +554,15 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             if args.eval_interval and global_step % args.eval_interval == 0 and step % args.gradient_accumulation_steps == 0:
                 # curr_avg_loss, cur_res = evaluate(args, tokenizer, model, dataset["dev"], "dev", epoch, device, adaptive_threshold)
                 curr_avg_loss = evaluate(args, tokenizer, model, dataset["dev"], "dev", epoch, device, adaptive_threshold)
+
                 if "adaptive" in args.type:
                     if curr_avg_loss >= prev_avg_loss + args.loss_eps:
                         adaptive_threshold += args.delta_threshold
                         adaptive_threshold = min(adaptive_threshold, 1.0)
                         prev_avg_loss = curr_avg_loss
-                # total_res.append([step]+cur_res)
+
+                gc.collect()
+                torch.cuda.empty_cache()
                 model.train()
 
             step += 1

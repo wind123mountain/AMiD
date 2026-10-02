@@ -1,7 +1,7 @@
 #! /bin/bash
 
-GPUS=(0 1)
-export CUDA_VISIBLE_DEVICES=$(IFS=,; echo "${GPUS[*]}")
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
+IFS=',' read -ra GPUS <<< "$CUDA_VISIBLE_DEVICES"
 
 MASTER_ADDR=localhost
 MASTER_PORT=66$(($RANDOM%90+10))
@@ -15,7 +15,7 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --master_addr $MASTER_ADDR \
                   --master_port $MASTER_PORT"
 
-# model
+# ───── model ─────
 BASE_PATH=.
 CKPT_NAME="gemma2-2b-it"
 CKPT="google/gemma-2-2b-it"
@@ -24,11 +24,17 @@ TEACHER_CKPT="google/gemma-2-9b-it"
 
 # ───── data ─────
 DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
-# hp
-BATCH_SIZE=2
+
+BATCH_SIZE=4            # per-GPU micro batch
 LR=1e-4
-GRAD_ACC=8
-EVAL_BATCH_SIZE=32
+EFF_BATCH=64            # effective batch
+DENOM=$((BATCH_SIZE * GPUS_PER_NODE * NNODES))
+if (( EFF_BATCH % DENOM != 0 )); then
+    echo "ERROR: EFF_BATCH=$EFF_BATCH không chia hết cho BATCH_SIZE*GPUS*NNODES=$DENOM" >&2
+    exit 1
+fi
+GRAD_ACC=$((EFF_BATCH / DENOM))
+EVAL_BATCH_SIZE=16
 # length
 MAX_LENGTH=1025
 # seed
@@ -39,7 +45,7 @@ AMID_DIV_ORDER="pr"
 AMID_ALPHA=0.5
 AMID_LAM=0.5
 
-SAVE_PATH="./results/${CKPT_NAME}#csd/${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
+SAVE_PATH="./results/${CKPT_NAME}#amid/${AMID_DIV_NAME}_${AMID_DIV_ORDER}_${AMID_ALPHA}_${AMID_LAM}_${BATCH_SIZE}_${LR}"
 
 
 
@@ -65,7 +71,7 @@ OPTS+=" --warmup-iters 0"
 OPTS+=" --lr-decay-style cosine"
 OPTS+=" --weight-decay 1e-2"
 OPTS+=" --clip-grad 1.0"
-OPTS+=" --epochs 3"
+OPTS+=" --epochs 2"
 OPTS+=" --kd-ratio 1.0"
 # length
 OPTS+=" --max-length ${MAX_LENGTH}"
@@ -106,7 +112,7 @@ OPTS+=" --amid-lam ${AMID_LAM}"
 
 OPTS+=" --peft lora"
 OPTS+=" --peft-lora-r 16"
-OPTS+=" --peft-lora-alpha 128"
+OPTS+=" --peft-lora-alpha 32"
 OPTS+=" --peft-lora-dropout 0.05"
 
 export NCCL_DEBUG=""
