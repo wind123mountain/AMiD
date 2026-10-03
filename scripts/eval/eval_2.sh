@@ -24,8 +24,20 @@ run_eval() {
     local OUT="${OUT_DIR}/${LABEL}"
     local LOG="${LOG_DIR}/${LABEL}.log"
 
+    if [ -f "${OUT}/DONE" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Bỏ qua (đã xong): ${LABEL} ==="
+        return 0
+    fi
     mkdir -p "${OUT}"
     mkdir -p "$(dirname "${LOG}")"
+    rm -f "${OUT}/FAILED"
+
+    # lm_eval with its exit code recorded in ${OUT}/FAILED (the block below runs in a pipe subshell)
+    task() {
+        lm_eval "$@"
+        local rc=$?
+        [ $rc -eq 0 ] || { echo "!! FAILED rc=${rc}: lm_eval $*"; echo "rc=${rc} $*" >> "${OUT}/FAILED"; }
+    }
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Bắt đầu: ${LABEL} ==="
 
@@ -70,24 +82,24 @@ run_eval() {
         echo "=========================================="
 
         echo ">>> [1/10] GSM8K"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm8k
+        task "${BASE_ARGS[@]}" --tasks gsm8k
 
         echo ">>> [2/10] MATH (Minerva format)"
-        lm_eval "${BASE_ARGS[@]}" \
+        task "${BASE_ARGS[@]}" \
             --tasks minerva_math \
             --num_fewshot 4
 
         echo ">>> [3/10] MMLU-STEM"
-        lm_eval "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
+        task "${BASE_ARGS[@]}" --tasks mmlu_stem --num_fewshot 5
 
         echo ">>> [4/10] SciQ"
-        lm_eval "${BASE_ARGS[@]}" --tasks sciq
+        task "${BASE_ARGS[@]}" --tasks sciq
 
         echo ">>> [5/10] MBPP"
-        lm_eval "${BASE_ARGS_CODE[@]}" --tasks mbpp --confirm_run_unsafe_code  --num_fewshot 3
+        task "${BASE_ARGS_CODE[@]}" --tasks mbpp --confirm_run_unsafe_code  --num_fewshot 3
 
         echo ">>> [6/10] GSM-Plus (5-shot)"
-        lm_eval "${BASE_ARGS[@]}" --tasks gsm_plus
+        task "${BASE_ARGS[@]}" --tasks gsm_plus
 
 
         echo "=========================================="
@@ -95,41 +107,82 @@ run_eval() {
         echo "=========================================="
     } 2>&1 | tee "${LOG}"
 
+    if [ -f "${OUT}/FAILED" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] === LỖI: ${LABEL} ($(wc -l < "${OUT}/FAILED") task) ==="
+        return 1
+    fi
+    touch "${OUT}/DONE"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Xong: ${LABEL} ==="
 }
 
-# bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#sfkl_nnm_lora/nnm_no_train_proj"
-# bash scripts/eval/merge_lora.sh "results/qwen2.5-1.5B-Instruct#feature"
+# Final checkpoints of run_gemma.sh / run_qwen.sh, read from the <phase>.ckpt records written by
+# check_ckpt (scripts/run_8xh200_common.sh), so only validated checkpoints are evaluated.
+CKPT_RECORDS="runs/${RUN_ID:-amid-kd-8xh200}"
+final_ckpt() {
+    local c
+    c=$(sed -n 's/^final_checkpoint=\([^ ]*\) .*/\1/p' "${CKPT_RECORDS}/$1.ckpt" 2>/dev/null)
+    [ -d "$c" ] || { echo "no final checkpoint for $1 in ${CKPT_RECORDS}/$1.ckpt" >&2; exit 1; }
+    echo "$c"
+}
+
+# Full fine-tune checkpoints are saved with model.module.save_pretrained, so the NNM phase also stores
+# its projectors.* weights, which vLLM rejects. Such a checkpoint gets a copy without them in
+# outputs/vllm_ckpt/<label>; checkpoints without projectors are used in place.
+vllm_ckpt() {
+    python - "$1" "outputs/vllm_ckpt/$2" <<'PY' || exit 1
+import os, shutil, sys, torch
+src, dst = sys.argv[1:]
+bins = sorted(f for f in os.listdir(src) if f.startswith("pytorch_model") and f.endswith(".bin"))
+if bins != ["pytorch_model.bin"]:
+    sys.exit(f"{src}: expected one pytorch_model.bin, found {bins}")
+sd = torch.load(os.path.join(src, "pytorch_model.bin"), map_location="cpu", weights_only=True)
+drop = [k for k in sd if k.startswith("projectors.")]
+if not drop:
+    print(src)
+    sys.exit()
+os.makedirs(dst, exist_ok=True)
+for f in os.listdir(src):
+    if not f.startswith("pytorch_model") and os.path.isfile(os.path.join(src, f)):
+        shutil.copy2(os.path.join(src, f), dst)
+torch.save({k: v for k, v in sd.items() if k not in drop}, os.path.join(dst, "pytorch_model.bin"))
+print(f"dropped {len(drop)} projector tensors: {src} -> {dst}", file=sys.stderr)
+print(dst)
+PY
+}
+
+GEMMA_REV=299a8560bedf22ed1c72a8a11e7dce4a7f9f51f8
+GEMMA_AMID=$(final_ckpt gemma/amid) || exit 1
+GEMMA_NNM=$(final_ckpt gemma/nnm) || exit 1
+QWEN_CSD=$(vllm_ckpt "$(final_ckpt qwen/csd)" "qwen2.5-0.5B-it#csd") || exit 1
+QWEN_AMID=$(vllm_ckpt "$(final_ckpt qwen/amid)" "qwen2.5-0.5B-it#amid") || exit 1
+QWEN_NNM=$(vllm_ckpt "$(final_ckpt qwen/nnm)" "qwen2.5-0.5B-it#sfkl_nnm") || exit 1
+FAILED_ANY=0
 
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "gemma2-2b-it#amid/ab_pr_0.5_0.5_4_1e-4" \
+    "pretrained=google/gemma-2-2b-it,revision=${GEMMA_REV},lora_local_path=${GEMMA_AMID},data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True" || FAILED_ANY=1
 
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "gemma2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=google/gemma-2-2b-it,revision=${GEMMA_REV},lora_local_path=${GEMMA_NNM},data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True" || FAILED_ANY=1
 
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "qwen2.5-0.5B-it#csd/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=${QWEN_CSD},data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True" || FAILED_ANY=1
 
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-0.5-it#csd/csd_ab_pr_0.5_0.5_8_1e-4" \
-    "pretrained=results/qwen2.5-0.5-it#csd/ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+    "qwen2.5-0.5B-it#amid/ab_pr_0.5_0.5_8_1e-4" \
+    "pretrained=${QWEN_AMID},data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True" || FAILED_ANY=1
 
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-0.5-it/ab_pr_0.5_0.5_8_1e-4" \
-    "pretrained=results/qwen2.5-0.5-it#amid/ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
+    "qwen2.5-0.5B-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
+    "pretrained=${QWEN_NNM},data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True" || FAILED_ANY=1
 
 
-HF_ALLOW_CODE_EVAL=1 run_eval \
-    "qwen2.5-0.5-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0" \
-    "pretrained=results/qwen2.5-0.5-it#sfkl_nnm_lora/nnm0.2_K128_L4_epoch2_lr1e-4_kdr1.0/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True"
-
-
-echo "Eval Done!"
+echo "Eval Done! (failed models: ${FAILED_ANY})"
+exit ${FAILED_ANY}

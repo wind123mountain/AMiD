@@ -1,1 +1,1 @@
-hf download VoCuc/UltraInteract-Infer --repo-type dataset --local-dir ./data/dpo
+hf download VoCuc/UltraInteract-Infer --repo-type dataset --revision "${DATA_REVISION:-main}" --local-dir ./data/dpo

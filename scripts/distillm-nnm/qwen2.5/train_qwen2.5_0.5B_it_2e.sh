@@ -24,7 +24,7 @@ TEACHER_CKPT="Qwen/Qwen3-4B-Instruct-2507"
 # data
 DATA_DIR="./processed_data/ultraInteract/Qwen/Qwen3-4B-Instruct-2507/"
 # hp
-BATCH_SIZE=16            # per-GPU micro batch
+BATCH_SIZE=${BATCH_SIZE:-16}            # per-GPU micro batch
 LR=1e-4
 EFF_BATCH=64            # effective batch
 DENOM=$((BATCH_SIZE * GPUS_PER_NODE * NNODES))
