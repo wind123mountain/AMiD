@@ -338,7 +338,11 @@ def finetune(args, tokenizer: AutoTokenizer, model: deepspeed.DeepSpeedEngine, o
             else:
                 student_captured_hidden.append(output)
 
-    for layer in model.base_model.model.model.layers:
+    # PEFT student: PeftModel -> get_base_model() is the *ForCausalLM; full fine-tune: it already is
+    student_lm = get_unwrapped_student(model)
+    if hasattr(student_lm, "get_base_model"):
+        student_lm = student_lm.get_base_model()
+    for layer in student_lm.model.layers:
         h_layer = layer.register_forward_hook(capture_hook_fn)
         hook_handles.append(h_layer)
 
