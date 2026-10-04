@@ -50,7 +50,8 @@ NNM_N_LAYERS=4
 NNM_D_PRIME=256
 NNM_CENTROID_BATCHES=500
 
-SAVE_PATH="./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"
+# run_phase (scripts/run_8xh200_common.sh) passes a per-run SAVE_PATH; the default is the original path.
+SAVE_PATH=${SAVE_PATH:-"./results/${CKPT_NAME}#sfkl_nnm_lora/nnm${NNM_RATIO}_K${NNM_K}_L${NNM_N_LAYERS}_epoch${EPOCHS}_lr${LR}_kdr${KD_R}"}
 
 
 OPTS=""

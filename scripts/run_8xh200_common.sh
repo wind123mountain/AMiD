@@ -159,7 +159,7 @@ run_phase() {
     require_idle_gpus
     log "$name: start $script -> $save"
     echo "$name" > "$RUN_DIR/current_phase"
-    bash "$script" > "$plog" 2>&1
+    SAVE_PATH="$save" bash "$script" > "$plog" 2>&1
     rc=$?
     if [ $rc -eq 0 ] && ! check_ckpt "$name" "$save"; then rc=4; fi
     if [ $rc -eq 0 ] && ! check_pins; then rc=5; fi
