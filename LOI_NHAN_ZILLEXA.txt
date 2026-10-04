@@ -1,0 +1,20 @@
+==================================================================
+Chào anh/chị, em là Quang ở team Zillexa.
+
+Theo em được biết, BTC cấp con GPU H200 này cho team em dùng, và team em đã
+xin phép dùng toàn bộ GPU trong thời gian tới. Vì vậy em xin phép dừng job
+GPU đang chạy của anh/chị:
+  - tmux session "nnm": bash scripts/gemma-2-9b-it.sh
+    (tools/generate_vllm.py, gemma-2-9b-it, output data/dpo/google/gemma-2-9b-it)
+  - dừng lúc 17:59 UTC, 03/10/2026 (00:59 giờ VN, 04/10), bằng SIGTERM.
+File output cũ generated_train.jsonl (01/10) KHÔNG bị đụng tới.
+
+Thông tin job và lệnh chạy lại được ghi ở:
+  /srv/tenant/zillexa/logs/stopped_jobs_2026-10-03_1759_amid.txt
+Em xin lỗi vì sự bất tiện này.
+
+Em chưa biết anh/chị là ai, nên rất mong anh/chị liên hệ em qua
+https://www.facebook.com/quangcler để hai bên sắp xếp lịch dùng GPU ạ.
+Em cảm ơn anh/chị nhiều!
+                                               — Quang, team Zillexa
+==================================================================

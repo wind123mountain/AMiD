@@ -104,15 +104,15 @@ run_eval() {
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
     "gemma-2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4/1246" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/ab_pr_0.5_0.5_8_1e-4/1246,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4/1246,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.2,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
 HF_ALLOW_CODE_EVAL=1 run_eval \
     "gemma-2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4/2492" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#csd/csd_ab_pr_0.5_0.5_8_1e-4/2492,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.2,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
 
-HF_ALLOW_CODE_EVAL=1 run_eval \
-    "gemma-2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/1246" \
-    "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/1246,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.8,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
+# HF_ALLOW_CODE_EVAL=1 run_eval \
+#     "gemma-2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/1246" \
+#     "pretrained=google/gemma-2-2b-it,lora_local_path=./results/gemma2-2b-it#amid/ab_pr_0.5_0.5_8_1e-4/1246,data_parallel_size=${DP},dtype=bfloat16,gpu_memory_utilization=0.2,trust_remote_code=True,max_lora_rank=32,enable_lora=True"
 
 echo "Eval Done!"

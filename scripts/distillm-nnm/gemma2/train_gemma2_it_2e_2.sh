@@ -25,7 +25,7 @@ TEACHER_CKPT="google/gemma-2-9b-it"
 # ───── data ─────
 DATA_DIR="./processed_data/ultraInteract/google/gemma-2-9b-it/"
 
-BATCH_SIZE=4            # per-GPU micro batch
+BATCH_SIZE=2            # per-GPU micro batch
 LR=1e-4
 EFF_BATCH=64            # effective batch
 DENOM=$((BATCH_SIZE * GPUS_PER_NODE * NNODES))
@@ -35,7 +35,7 @@ if (( EFF_BATCH % DENOM != 0 )); then
 fi
 GRAD_ACC=$((EFF_BATCH / DENOM))
 EVAL_BATCH_SIZE=32
-MAX_LENGTH=1025
+MAX_LENGTH=2048
 SEED=10
 EPOCHS=2
 KD_R=1.0

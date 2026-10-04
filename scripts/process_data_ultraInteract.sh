@@ -50,12 +50,12 @@ PYTHONPATH=. python ./tools/process_data_ultraInteract.py \
     --dev-num 200 \
     --only-prompt
 
-PYTHONPATH=. python ./tools/process_data_ultraInteract.py \
-    --data-dir ./data/dpo/Qwen/Qwen3-4B-Instruct-2507/generated_train.jsonl \
-    --processed-data-dir ./processed_data/ultraInteract \
-    --model-path Qwen/Qwen3-4B-Instruct-2507 \
-    --data-process-workers 32 \
-    --max-prompt-length 512 \
-    --dev-num 200 \
-    --only-prompt
+# PYTHONPATH=. python ./tools/process_data_ultraInteract.py \
+#     --data-dir ./data/dpo/Qwen/Qwen3-4B-Instruct-2507/generated_train.jsonl \
+#     --processed-data-dir ./processed_data/ultraInteract \
+#     --model-path Qwen/Qwen3-4B-Instruct-2507 \
+#     --data-process-workers 32 \
+#     --max-prompt-length 512 \
+#     --dev-num 200 \
+#     --only-prompt
 
