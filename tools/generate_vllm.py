@@ -31,14 +31,14 @@ def worker_inference(gpu_id, model_path, data_chunk, prompts_chunk, temp_out_pat
         trust_remote_code=True,
         dtype="bfloat16",
         tensor_parallel_size=1,
-        gpu_memory_utilization=0.9,
+        gpu_memory_utilization=0.3,
         seed=42
     )
 
     sampling_params = SamplingParams(
-        temperature=0.85,
+        temperature=0.0,
         top_p=0.95,
-        max_tokens=1024,
+        max_tokens=5120,
         skip_special_tokens=True
     )
 

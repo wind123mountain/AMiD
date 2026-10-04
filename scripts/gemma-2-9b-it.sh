@@ -1,5 +1,5 @@
 #!/bin/bash
-TP_SIZE=${1:-2}
+TP_SIZE=${1:-1}
 
 MODEL_PATH="google/gemma-2-9b-it"
 OUTPUT_DIR="data/dpo/google/gemma-2-9b-it"
