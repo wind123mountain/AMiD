@@ -227,7 +227,32 @@ Dir sizes are for the whole `<save_path>`.
 - **vLLM copy of Qwen NNM** (projectors stripped): `outputs/vllm_ckpt/` (958M).
 - **Disk**: `/nvme` has 6.2T free.
 - **GPU release**: all 8 GPUs are at 0% utilisation and 0 MiB. There are no compute apps and no leftover `torchrun`, `ray`, `vllm` or `lm_eval` processes.
-- **Upload**: none. The run input gives no rclone destination, and `rclone` is not installed on the server.
+- **Upload**: done after the run, at the user's request, on 2026-10-03. The run input gave no rclone destination, and `rclone` is not installed on the server.
+  - **Google Drive** (22:13, from the laptop's rclone remote `annp_nqd`, with `--drive-root-folder-id=root`):
+    - The first attempt at 22:02 went to the wrong place. The remote has a fixed `root_folder_id`, so `annp_nqd:[ARR October] NuNo` created a new folder inside that root folder instead of using the one in MyDrive. That misplaced copy was gone by 22:25 (checked with `rclone lsf`).
+    - Destination: `MyDrive/[ARR October] NuNo/amid-kd-8xh200/`, with the server's layout kept.
+    - Contents: 41 files, 5.515 MiB:
+      - `runs/amid-kd-8xh200/eval/` (6 files);
+      - `outputs/eval_results/logs/` (5 per-model logs);
+      - the 30 `results_*.json`.
+    - `rclone check`: 41 matching files, 0 differences.
+    - The 150 `samples_*.jsonl` (2,631,499,822 bytes) were added at 22:22, at the user's request:
+      - pulled from the server to the laptop first; the sha256 over all 150 files matched the server;
+      - `rclone check`: 150 matching files.
+    - The folder now holds 191 files, 2.456 GiB.
+  - **Hugging Face** (22:01–22:03): one public model repo per final checkpoint `2492/`, each uploaded on its own. The `1246/` checkpoints were not uploaded.
+    - Each repo contains the step directory plus a model card (`README.md`), which replaces the PEFT template README.
+    - The weight sha256 on the Hub (LFS) was checked against the table above, and every repo was checked to be public.
+    - The Qwen NNM repo holds the checkpoint as trained, including the 4 `projectors.*` tensors.
+    - Log: `runs/amid-kd-8xh200/hf_upload/upload.log` (`exit_code` 0).
+
+    | phase | repo |
+    |---|---|
+    | `gemma/amid` | https://huggingface.co/Savoxism/amid-kd-8xh200-gemma2-2b-it-amid |
+    | `gemma/nnm` | https://huggingface.co/Savoxism/amid-kd-8xh200-gemma2-2b-it-nnm |
+    | `qwen/csd` | https://huggingface.co/Savoxism/amid-kd-8xh200-qwen2.5-0.5b-it-csd |
+    | `qwen/amid` | https://huggingface.co/Savoxism/amid-kd-8xh200-qwen2.5-0.5b-it-amid |
+    | `qwen/nnm` | https://huggingface.co/Savoxism/amid-kd-8xh200-qwen2.5-0.5b-it-nnm |
 
 ## Limitations
 
@@ -260,4 +285,4 @@ Dir sizes are for the whole `<save_path>`.
 - Run lm-eval on the `1246/` checkpoints, at least for Gemma AMiD, Gemma NNM and Qwen AMiD, where dev rougeL peaked at epoch 1.
 - Fix Gemma MBPP detokenisation (the `▁` and `\r` in the vLLM LoRA output), then re-score MBPP from the saved samples or rerun it.
 - Optionally merge the 3 chat-template tasks with identical arguments into one `lm_eval` call per model, to save about 2–3 min of vLLM start-up. The user declined this for now.
-- Upload the artifacts listed in the run input once an rclone destination is given and `rclone` is installed.
+- Upload the rest of the artifacts in the run input if needed: the `1246/` checkpoints, each phase's `log.txt` and dev answers (`eval/`), and the other `runs/amid-kd-8xh200/` logs.
