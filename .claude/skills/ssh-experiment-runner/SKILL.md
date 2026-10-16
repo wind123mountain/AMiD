@@ -24,6 +24,7 @@ Ask only for missing fields that change the run. Never invent paths, commands, r
 
 ## 2. Code → server: git only
 
+- Every project created on the server must live under `/nvme/annp36-home/work/<project>` (this is remote_path). Keep all of its clones, venvs, data, runs, scratch scripts, and backups inside it; never put project files in `~`, `/tmp`, or elsewhere under `/nvme/annp36-home`.
 - Never send code to the server with rsync, scp, or edits on the server. Hotfixes follow the same path: edit locally, commit, push, pull.
 - Commit on the branch you are currently working on and push it. Never force-push.
 - Server: `git fetch origin && git switch <branch> && git pull --ff-only`.
