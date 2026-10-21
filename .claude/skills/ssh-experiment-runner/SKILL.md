@@ -15,7 +15,7 @@ One plan file per run, in the project repo. `<plan>` is its basename; the runtim
 - `# Model`: repo_id, revision, model/cache path, task, method, seed, batch sizes, epochs, GPU policy.
 - `# Commands`: exact preflight, train, eval, and verify commands, in order.
 - `# Outputs`: unique output, checkpoint, log, PID, and exit-code paths.
-- `# Upload`: Google Drive remote and folder, artifacts to upload, local download path.
+- `# Upload`: Google Drive remote, folder, and owner account (the user's Google email), artifacts to upload, local download path.
 - `# Acceptance`: expected artifacts and metrics, failure conditions, retry policy.
 
 Ask only for missing fields that change the run. Never invent paths, commands, revisions, or destinations.
@@ -84,6 +84,10 @@ Ask only for missing fields that change the run. Never invent paths, commands, r
 - The user does the authorization: `rclone authorize "drive" ...` on the Mac, then pastes the token into `rclone config` on the server.
 - Never ask for, print, or store the secret or token. Do not run `config show` or `config dump`; only `rclone config redacted`.
 - Before uploading, run `rclone listremotes --long` and `rclone lsd REMOTE:`. If the remote is missing, unauthenticated, or uses the default client, stop and ask. Never change the destination.
+- Upload only into a folder the user owns, in their own My Drive:
+  - never use `--drive-shared-with-me`, `--drive-team-drive`, or a remote with `shared_with_me`/`team_drive` set;
+  - never upload into a folder that is shared with the user, or into a shortcut to one. When its owner removes it, the user's files in it can end up loose in their My Drive root;
+  - before the first upload, check every existing folder on the DEST path with `rclone lsjson REMOTE:PARENT --metadata --dirs-only --max-depth 1`: `owner` must be the owner account in the plan. If any folder has another owner, stop and ask.
 - Upload only after: exit code 0, complete checkpoints, parseable metrics, matching hashes.
 - `rclone copy OUTPUT REMOTE:DEST --progress`. Never use `sync`, `move`, `delete`, `purge`, or `--delete*`.
 - Verify with `rclone check OUTPUT REMOTE:DEST --one-way`. Report the path, destination, size, hashes, and status.
